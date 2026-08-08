@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { FFMPEG_PATH } from './paths.mjs';
+import { analyzeRespawnFrame } from './respawn-vision.mjs';
 
 export async function ensureFfmpeg() {
   await fsp.access(FFMPEG_PATH, fs.constants.X_OK);
@@ -312,6 +313,96 @@ export async function sampleBattleHud(source, duration, { interval = 0.25, onPro
     child.on('close', code => {
       if (code === 0) resolve(samples);
       else reject(new Error(`生存枚数サンプリングに失敗しました: ${stderr.slice(-1500)}`));
+    });
+  });
+}
+
+function analyzeRespawnHud(frame, width, height, time) {
+  let white = 0;
+  let dark = 0;
+  let colored = 0;
+  let edges = 0;
+  const rowSignal = new Array(height).fill(0);
+  const blocks = Array.from({ length: 3 }, () => ({ pixels: 0, white: 0, dark: 0, colored: 0, edges: 0 }));
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const at = (y * width + x) * 3;
+      const r = frame[at];
+      const g = frame[at + 1];
+      const b = frame[at + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max ? (max - min) / max : 0;
+      const isWhite = min >= 175 && max >= 205;
+      const isColored = saturation >= 0.28 && max >= 105;
+      if (isWhite) white += 1;
+      if (isColored) colored += 1;
+      if (max <= 42) dark += 1;
+      const block = blocks[Math.min(2, Math.floor(x / (width / 3)))];
+      block.pixels += 1;
+      if (isWhite) block.white += 1;
+      if (isColored) block.colored += 1;
+      if (max <= 42) block.dark += 1;
+      if (isWhite || isColored) rowSignal[y] += 1;
+      if (x > 0) {
+        const previous = at - 3;
+        if (Math.abs(r - frame[previous]) + Math.abs(g - frame[previous + 1]) + Math.abs(b - frame[previous + 2]) >= 155) {
+          edges += 1;
+          block.edges += 1;
+        }
+      }
+    }
+  }
+  let bandSignal = 0;
+  for (let start = 0; start <= height - 14; start += 1) {
+    const value = rowSignal.slice(start, start + 14).reduce((sum, row) => sum + row, 0) / (width * 14);
+    bandSignal = Math.max(bandSignal, value);
+  }
+  const pixels = width * height;
+  return {
+    time,
+    whiteRatio: white / pixels,
+    darkRatio: dark / pixels,
+    coloredRatio: colored / pixels,
+    edgeRatio: edges / pixels,
+    bandSignal,
+    blocks: blocks.map(block => ({
+      whiteRatio: block.white / block.pixels,
+      darkRatio: block.dark / block.pixels,
+      coloredRatio: block.colored / block.pixels,
+      edgeRatio: block.edges / block.pixels,
+    })),
+  };
+}
+
+export async function sampleRespawnHud(source, duration, { interval = 0.25, onProgress } = {}) {
+  const width = 220;
+  const height = 60;
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-vf', `fps=1/${interval},scale=1920:1080,crop=440:120:1480:940,scale=${width}:${height}`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    const samples = [];
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.stdout.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameSize) {
+        const frame = pending.subarray(0, frameSize);
+        pending = pending.subarray(frameSize);
+        const time = samples.length * interval;
+        samples.push({ ...analyzeRespawnHud(frame, width, height, time), ...analyzeRespawnFrame(frame, width, time) });
+        if (samples.length % 40 === 0) onProgress?.(Math.min(1, time / duration));
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(samples);
+      else reject(new Error(`復活UIサンプリングに失敗しました: ${stderr.slice(-1500)}`));
     });
   });
 }

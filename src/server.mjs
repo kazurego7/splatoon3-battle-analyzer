@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Pipeline } from './pipeline.mjs';
 import { Store } from './store.mjs';
-import { ANALYSIS_ROOT, MATCH_ROOT, PUBLIC_ROOT, THUMBNAIL_ROOT } from './paths.mjs';
+import { ANALYSIS_ROOT, MATCH_ROOT, PROJECT_ROOT, PUBLIC_ROOT, THUMBNAIL_ROOT } from './paths.mjs';
 
 const PORT = Number(process.env.PORT || 4310);
 const store = new Store();
@@ -101,6 +101,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && parts[0] === 'media' && parts[1] === 'thumbnails') {
       await serveFile(request, response, safeJoin(THUMBNAIL_ROOT, parts.slice(2)));
+      return;
+    }
+    if (request.method === 'GET' && parts[0] === 'assets' && parts[1] === 'stage-maps') {
+      await serveFile(request, response, safeJoin(path.join(PROJECT_ROOT, 'assets', 'stage-maps', 'images'), parts.slice(2)));
       return;
     }
     if (request.method === 'GET') {

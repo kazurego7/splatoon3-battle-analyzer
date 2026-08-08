@@ -4,6 +4,7 @@ import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
 import { analyzeMapCandidate, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { applyVerifiedDeathWindows, attachRespawnEvidence } from '../src/analysis-overrides.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -101,4 +102,21 @@ test('selects an observed map frame inside a death review window', () => {
   const selected = selectObservedMapFrame([{ time: 3, neutralRatio: 0.02, edgeRatio: 0.01, score: 0.02 }, map], [{ time: 8 }]);
   assert.equal(selected.time, 12);
   assert.equal(selected.source, 'observed-map-screen');
+});
+
+test('removes only human-verified false death windows', () => {
+  const deaths = [{ time: 35.5 }, { time: 95.25 }, { time: 123.25 }];
+  assert.deepEqual(
+    applyVerifiedDeathWindows(deaths, { ignoredDeathWindows: [[30, 45]] }).map(death => death.time),
+    [95.25, 123.25],
+  );
+});
+
+test('attaches respawn countdown evidence to the matching HUD death', () => {
+  const [death] = attachRespawnEvidence(
+    [{ time: 95, end: 101, confidence: 0.8, evidence: { detector: 'self-hud-cross' } }],
+    [{ time: 100, confidence: 0.95, evidence: { detector: 'respawn-countdown-ui', variant: 'normal' } }],
+  );
+  assert.equal(death.evidence.respawn.detector, 'respawn-countdown-ui');
+  assert.equal(death.confidence, 0.95);
 });

@@ -10,7 +10,7 @@ const elements = {
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:40, countBottom:175, aliveTop:225, aliveBottom:335, labelY:385 };
+const chartBounds = { left:34, right:978, countTop:34, countBottom:128, aliveTop:174, aliveBottom:260, labelY:310 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -69,7 +69,7 @@ function renderChart() {
   elements.chartGrid.innerHTML='';
   [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
   [0,1,2,3,4].forEach(count=>{const y=aliveY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
-  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:201,y2:201,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,29,'start','chart-text axis-title'); addChartLabel('生存人数',chartBounds.left,216,'start','chart-text axis-title');
+  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:151,y2:151,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,24,'start','chart-text axis-title'); addChartLabel('生存人数',chartBounds.left,166,'start','chart-text axis-title');
   for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle');}
   elements.chartCountSeries.replaceChildren(svgElement('path',{d:stepPath(game,'teamCount',gameY),class:'chart-count-team'}),svgElement('path',{d:stepPath(game,'enemyCount',gameY),class:'chart-count-enemy'}));
   elements.chartSeries.replaceChildren(svgElement('path',{d:stepPath(alive,'teamAlive',aliveY),class:'chart-team'}),svgElement('path',{d:stepPath(alive,'enemyAlive',aliveY),class:'chart-enemy'}));
@@ -81,7 +81,7 @@ function interpolate(points,time) { if(!points?.length)return null;if(time<=poin
 function renderMapBase() {
   const map=currentAnalysis.stageMap;
   elements.routeLayer.innerHTML=''; elements.entityLayer.innerHTML=''; elements.playerLayer.innerHTML='';
-  if(map?.imageUrl){elements.stageMapImage.src=map.imageUrl;elements.stageMapImage.hidden=false;elements.mapPlaceholder.hidden=true;elements.mapSourceStatus.textContent=`映像 ${formatTime(map.observedAt)} で観測`;}else{elements.stageMapImage.hidden=true;elements.mapPlaceholder.hidden=false;elements.mapSourceStatus.textContent='マップ未検出';}
+  if(map?.imageUrl){elements.stageMapImage.src=map.imageUrl;elements.stageMapImage.hidden=false;elements.mapPlaceholder.hidden=true;elements.mapSourceStatus.textContent=map.stage?`${map.stage}｜${map.rule}`:`映像 ${formatTime(map.observedAt)} で観測`;}else{elements.stageMapImage.hidden=true;elements.mapPlaceholder.hidden=false;elements.mapSourceStatus.textContent='マップ未検出';}
   const route=currentAnalysis.route||currentAnalysis.playerRoute||[];
   route.slice(0,-1).forEach((point,index)=>{const next=route[index+1];const line=svgElement('line',{x1:point[1]??point.x,y1:point[2]??point.y,x2:next[1]??next.x,y2:next[2]??next.y,class:`route-segment ${(point.source||next.source)==='predicted'?'predicted':''}`});line.dataset.time=point[0]??point.time;elements.routeLayer.append(line);});
 }

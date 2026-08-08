@@ -49,16 +49,16 @@
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="timeline-markers"></div><input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="再生位置"></div>
             <div id="death-track" class="death-track" aria-label="自分のデス時刻"><div id="death-markers"></div></div>
             <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="team"></i>自軍生存</span><span><i class="enemy"></i>相手生存</span><span><i class="advantage"></i>人数有利</span><span><i class="death"></i>自分のデス</span></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 400" role="img" aria-label="動画と同期するゲームカウント、生存人数、人数差、自分のデス">
+            <svg id="analysis-chart" viewBox="0 0 1000 320" role="img" aria-label="動画と同期するゲームカウント、生存人数、人数差、自分のデス">
               <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-series"></g><g id="chart-events"></g><g id="chart-cursor"></g>
-              <rect id="chart-hit" x="34" y="24" width="944" height="346"></rect>
+              <rect id="chart-hit" x="34" y="24" width="944" height="286"></rect>
             </svg>
           </section>
 
           <section class="panel map-panel" aria-labelledby="map-heading">
             <div class="panel-heading"><div><p>SPATIAL REVIEW</p><h2 id="map-heading">ステージマップ</h2></div><span id="map-source-status">マップを検出中</span></div>
             <div class="map-shell">
-              <img id="stage-map-image" alt="映像から観測したステージマップ" hidden>
+              <img id="stage-map-image" alt="stage-maps素材のステージマップ" hidden>
               <div id="map-placeholder" class="map-placeholder">録画内のマップ画面を確認しています</div>
               <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="自分の動線と敵味方の観測・予測位置"><g id="route-layer"></g><g id="entity-layer"></g><g id="player-layer"></g></svg>
               <div id="map-clock" class="map-clock">00:00</div>

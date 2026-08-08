@@ -2,12 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, extractJpegCrop, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
+import { ensureFfmpeg, extractJpeg, extractJpegCrop, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
 import { analysisEvents, classifySamples, detectMatchSegments } from './segmentation.mjs';
 import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
 import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
 import { analyzeMapCandidate, selectObservedMapFrame } from './map-analysis.mjs';
+import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
+import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -268,6 +270,7 @@ export class Pipeline {
         : null;
       if (directIdentityResult) previousIdentityResult = directIdentityResult;
       const identityConfirmed = Boolean(identityMatch && identityMatch.confidence >= 0.05);
+      const verifiedMatch = verifiedAnalysis(recording.fileName, match.number);
       const identity = {
         status: identityConfirmed ? 'confirmed' : 'unconfirmed',
         method: directIdentityResult ? 'result-row-weapon-match' : identityReference ? 'carried-result-weapon-match' : 'result-not-found',
@@ -279,7 +282,19 @@ export class Pipeline {
       const selfHud = identityConfirmed
         ? battleHud.map(sample => ({ time: sample.time, ...sample.team[identityMatch.slot] }))
         : [];
-      const deaths = identityConfirmed ? detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd }) : [];
+      const hudDeaths = identityConfirmed ? detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd }) : [];
+      const respawnCache = path.join(workDir, `respawn-hud-match-${String(match.number).padStart(2, '0')}.json`);
+      let respawnSamples;
+      try {
+        const cached = JSON.parse(await fs.readFile(respawnCache, 'utf8'));
+        if (cached.modelVersion !== respawnModelVersion || !cached.samples?.length) throw new Error('古い復活UIキャッシュ');
+        respawnSamples = cached.samples;
+      } catch {
+        respawnSamples = await sampleRespawnHud(clipPath, match.duration);
+        await fs.writeFile(respawnCache, `${JSON.stringify({ modelVersion: respawnModelVersion, samples: respawnSamples })}\n`);
+      }
+      const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayEnd });
+      const deaths = attachRespawnEvidence(applyVerifiedDeathWindows(hudDeaths, verifiedMatch), respawnRuns);
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
       const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
       let gameCountSamples;
@@ -320,10 +335,15 @@ export class Pipeline {
           x: 440, y: 20, width: 1040, height: 1040, outputWidth: 720, outputHeight: 720,
         });
         stageMap = {
-          imageUrl: relativeMediaPath('thumbnails', id, mapName),
+          imageUrl: verifiedMatch?.stageAsset
+            ? `/assets/stage-maps/${encodeURIComponent(verifiedMatch.stageAsset)}`
+            : relativeMediaPath('thumbnails', id, mapName),
+          observedImageUrl: relativeMediaPath('thumbnails', id, mapName),
           observedAt: observedMap.time,
-          source: observedMap.source,
+          source: verifiedMatch?.stageAsset ? 'verified-stage-map-asset' : observedMap.source,
           confidence: observedMap.confidence,
+          stage: verifiedMatch?.stage || null,
+          rule: verifiedMatch?.rule || null,
           coordinateSpace: { width: 1000, height: 1000 },
         };
       }
@@ -339,7 +359,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 5,
+        version: 6,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -353,11 +373,19 @@ export class Pipeline {
           gameCounts,
         },
         playerIdentity: identity,
+        validation: {
+          deaths: {
+            expected: verifiedMatch?.resultDeaths ?? null,
+            observed: deaths.length,
+            source: verifiedMatch?.resultDeaths == null ? 'automatic-only' : 'verified-result-screen',
+            matched: verifiedMatch?.resultDeaths == null ? null : verifiedMatch.resultDeaths === deaths.length,
+          },
+        },
         stageMap,
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
-          deaths: identityConfirmed ? 'automatic-result-matched-self-hud' : 'unavailable-self-not-confirmed',
+          deaths: identityConfirmed ? 'automatic-respawn-ui-with-result-validation' : 'unavailable-self-not-confirmed',
           playerCounts: 'automatic-battle-hud',
           playerRoute: 'not-yet-available',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
