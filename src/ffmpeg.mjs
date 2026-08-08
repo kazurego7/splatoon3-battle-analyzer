@@ -170,7 +170,7 @@ export async function sampleVideo(source, duration, { interval = 2, width = 160,
   });
 }
 
-function analyzeSelfHudFrame(frame, width, height, time) {
+function analyzeHudIcon(frame, frameWidth, height, startX, width, time) {
   let saturated = 0;
   let gray = 0;
   let diagonalDownGray = 0;
@@ -179,7 +179,7 @@ function analyzeSelfHudFrame(frame, width, height, time) {
   let diagonalUpPixels = 0;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const at = (y * width + x) * 3;
+      const at = (y * frameWidth + startX + x) * 3;
       const r = frame[at];
       const g = frame[at + 1];
       const b = frame[at + 2];
@@ -213,6 +213,28 @@ function analyzeSelfHudFrame(frame, width, height, time) {
   };
 }
 
+function analyzeHudRegion(frame, frameWidth, startX, startY, width, height) {
+  let dark = 0;
+  let white = 0;
+  let edge = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const at = ((startY + y) * frameWidth + startX + x) * 3;
+      const r = frame[at];
+      const g = frame[at + 1];
+      const b = frame[at + 2];
+      if (r < 48 && g < 48 && b < 48) dark += 1;
+      if (r > 190 && g > 190 && b > 190) white += 1;
+      if (x > 0) {
+        const left = at - 3;
+        if (Math.abs(r - frame[left]) + Math.abs(g - frame[left + 1]) + Math.abs(b - frame[left + 2]) > 150) edge += 1;
+      }
+    }
+  }
+  const pixels = width * height;
+  return { darkRatio: dark / pixels, whiteRatio: white / pixels, edgeRatio: edge / pixels };
+}
+
 export async function sampleSelfHud(source, duration, { interval = 0.25, onProgress } = {}) {
   const width = 70;
   const height = 60;
@@ -232,7 +254,7 @@ export async function sampleSelfHud(source, duration, { interval = 0.25, onProgr
       while (pending.length >= frameSize) {
         const frame = pending.subarray(0, frameSize);
         pending = pending.subarray(frameSize);
-        const sample = analyzeSelfHudFrame(frame, width, height, samples.length * interval);
+        const sample = analyzeHudIcon(frame, width, height, 0, width, samples.length * interval);
         samples.push(sample);
         if (samples.length % 40 === 0) onProgress?.(Math.min(1, sample.time / duration));
       }
@@ -241,6 +263,45 @@ export async function sampleSelfHud(source, duration, { interval = 0.25, onProgr
     child.on('close', code => {
       if (code === 0) resolve(samples);
       else reject(new Error(`自分のデス状態サンプリングに失敗しました: ${stderr.slice(-1500)}`));
+    });
+  });
+}
+
+export async function sampleBattleHud(source, duration, { interval = 0.25, onProgress } = {}) {
+  const battleWidth = 495;
+  const selfWidth = 70;
+  const width = battleWidth + selfWidth;
+  const height = 60;
+  const iconWidth = 70;
+  const iconStarts = [8, 60, 113, 165, 275, 325, 375, 425];
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-vf', `fps=1/${interval},scale=1920:1080,split=2[battle][self];[battle]crop=990:120:460:0,scale=${battleWidth}:${height}[wide];[self]crop=140:120:790:0,scale=${selfWidth}:${height}[own];[wide][own]hstack=inputs=2`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    const samples = [];
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.stdout.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameSize) {
+        const frame = pending.subarray(0, frameSize);
+        pending = pending.subarray(frameSize);
+        const time = samples.length * interval;
+        const icons = iconStarts.map(startX => analyzeHudIcon(frame, width, height, startX, iconWidth, time));
+        const timer = analyzeHudRegion(frame, width, 230, 5, 55, 50);
+        const self = analyzeHudIcon(frame, width, height, battleWidth, selfWidth, time);
+        samples.push({ time, timer, team: icons.slice(0, 4), enemy: icons.slice(4), self });
+        if (samples.length % 40 === 0) onProgress?.(Math.min(1, time / duration));
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(samples);
+      else reject(new Error(`生存枚数サンプリングに失敗しました: ${stderr.slice(-1500)}`));
     });
   });
 }

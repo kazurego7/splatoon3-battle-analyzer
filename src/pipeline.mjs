@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, probeMedia, runFfmpeg, sampleSelfHud, sampleVideo } from './ffmpeg.mjs';
+import { ensureFfmpeg, extractJpeg, probeMedia, runFfmpeg, sampleBattleHud, sampleVideo } from './ffmpeg.mjs';
 import { analysisEvents, classifySamples, detectMatchSegments } from './segmentation.mjs';
-import { detectSelfDeaths } from './battle-analysis.mjs';
+import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -230,24 +230,26 @@ export class Pipeline {
       const clipPath = path.join(finalClips, match.fileName);
       const thumbnailName = `match-${String(match.number).padStart(2, '0')}.jpg`;
       await extractJpeg(clipPath, Math.min(35, Math.max(1, match.duration / 3)), path.join(thumbnailDir, thumbnailName), 640);
-      const hudCache = path.join(workDir, `self-hud-match-${String(match.number).padStart(2, '0')}.json`);
-      let selfHud;
+      const hudCache = path.join(workDir, `battle-hud-match-${String(match.number).padStart(2, '0')}.json`);
+      let battleHud;
       try {
         const cached = JSON.parse(await fs.readFile(hudCache, 'utf8'));
-        if (cached.version !== 1 || !cached.samples?.length) throw new Error('古いHUDキャッシュ');
-        selfHud = cached.samples;
+        if (cached.version !== 2 || !cached.samples?.length || !cached.samples[0].self) throw new Error('古いHUDキャッシュ');
+        battleHud = cached.samples;
       } catch {
-        selfHud = await sampleSelfHud(clipPath, match.duration, {
+        battleHud = await sampleBattleHud(clipPath, match.duration, {
           onProgress: ratio => this.store.patch(id, {
             status: 'analyzing',
-            phase: `試合${index + 1}/${matches.length}のデスを検出中`,
+            phase: `試合${index + 1}/${matches.length}の生存人数を検出中`,
             progress: 0.68 + ((index + ratio) / matches.length) * 0.3,
           }).catch(console.error),
         });
-        await fs.writeFile(hudCache, `${JSON.stringify({ version: 1, samples: selfHud })}\n`);
+        await fs.writeFile(hudCache, `${JSON.stringify({ version: 2, samples: battleHud })}\n`);
       }
       const gameplayEnd = Math.max(0, segments[index].activeEnd - match.start);
+      const selfHud = battleHud.map(sample => ({ time: sample.time, ...sample.self }));
       const deaths = detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd });
+      const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
       const insights = analysisEvents(classified, match.start, match.end)
         .filter(event => deaths.every(death => Math.abs(death.time - event.time) >= 7));
       const events = [...deaths, ...insights].sort((a, b) => a.time - b.time);
@@ -260,7 +262,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 2,
+        version: 3,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -270,11 +272,13 @@ export class Pipeline {
         series,
         gameFlow: {
           deaths: { self: deaths.map(death => [death.time, death.duration]) },
+          playerCounts,
         },
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
           deaths: 'automatic-self-hud',
+          playerCounts: 'automatic-battle-hud',
           playerRoute: 'not-yet-available',
           gameCountOcr: 'not-yet-available',
         },

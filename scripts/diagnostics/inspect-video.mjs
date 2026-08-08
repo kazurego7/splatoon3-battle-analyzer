@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { probeMedia, sampleVideo } from '../src/ffmpeg.mjs';
-import { classifySamples, detectMatchSegments } from '../src/segmentation.mjs';
-import { PROJECT_ROOT, WORK_ROOT } from '../src/paths.mjs';
+import { probeMedia, sampleVideo } from '../../src/ffmpeg.mjs';
+import { classifySamples, detectMatchSegments } from '../../src/segmentation.mjs';
+import { PROJECT_ROOT, WORK_ROOT } from '../../src/paths.mjs';
 
 const input = process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) : null;
 if (!input) throw new Error('Usage: npm run inspect -- <video>');

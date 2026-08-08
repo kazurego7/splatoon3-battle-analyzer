@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node src/server.mjs",
     "analyze": "node src/cli.mjs",
-    "inspect": "node scripts/inspect-video.mjs",
-    "inspect:deaths": "node scripts/inspect-deaths.mjs",
-    "check": "node --check src/server.mjs && node --check src/pipeline.mjs && node --check public/app.js",
+    "inspect": "node scripts/diagnostics/inspect-video.mjs",
+    "inspect:deaths": "node scripts/diagnostics/inspect-deaths.mjs",
+    "inspect:counts": "node scripts/diagnostics/inspect-player-counts.mjs",
+    "check": "node --check src/server.mjs && node --check src/pipeline.mjs && node --check src/ffmpeg.mjs && node --check src/battle-analysis.mjs && node --check public/app.js && node --check scripts/diagnostics/inspect-video.mjs && node --check scripts/diagnostics/inspect-deaths.mjs && node --check scripts/diagnostics/inspect-player-counts.mjs",
     "test": "node --test"
   },
   "engines": {
