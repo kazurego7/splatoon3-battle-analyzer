@@ -10,7 +10,7 @@ const elements = {
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:34, countBottom:128, aliveTop:174, aliveBottom:260, labelY:310 };
+const chartBounds = { left:34, right:978, countTop:30, countBottom:118, advantageTop:142, advantageBottom:170, labelY:195 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -55,7 +55,6 @@ function renderSelected() {
 }
 
 function chartX(time) { return chartBounds.left+(time/currentAnalysis.media.duration)*(chartBounds.right-chartBounds.left); }
-function aliveY(count) { return chartBounds.aliveBottom-(Math.max(0,Math.min(4,count))/4)*(chartBounds.aliveBottom-chartBounds.aliveTop); }
 function gameY(count) { return chartBounds.countTop+((100-Math.max(0,Math.min(100,count)))/100)*(chartBounds.countBottom-chartBounds.countTop); }
 function stepPath(points,key,yScale) { if(!points.length)return'';let path=`M ${chartX(points[0].time)} ${yScale(points[0][key])}`;for(let index=1;index<points.length;index+=1){const item=points[index];path+=` H ${chartX(item.time)} V ${yScale(item[key])}`;}return path; }
 function stateAt(points,time,maxAge=2) { let result=null;for(const item of points){if(item.time>time+.5)break;result=item;}return result&&time-result.time<=maxAge?result:null; }
@@ -65,15 +64,14 @@ function gameCountAt(time) { return stateAt(currentAnalysis?.gameFlow?.gameCount
 function addChartLabel(text,x,y,anchor='end',className='chart-text') { const label=svgElement('text',{x,y,'text-anchor':anchor,class:className});label.textContent=text;elements.chartGrid.append(label); }
 function renderChart() {
   const duration=currentAnalysis.media.duration; const alive=currentAnalysis.gameFlow?.playerCounts||[]; const game=currentAnalysis.gameFlow?.gameCounts||[];
-  elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.aliveTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.aliveBottom-chartBounds.aliveTop,class:`chart-advantage ${item.difference>0?'positive':item.difference<0?'negative':'even'} ${item.source==='held'?'held':''}`}));});
+  elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.advantageTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.advantageBottom-chartBounds.advantageTop,class:`chart-advantage ${item.difference>0?'positive':item.difference<0?'negative':'even'} ${item.source==='held'?'held':''}`}));});
   elements.chartGrid.innerHTML='';
   [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
-  [0,1,2,3,4].forEach(count=>{const y=aliveY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
-  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:151,y2:151,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,24,'start','chart-text axis-title'); addChartLabel('生存人数',chartBounds.left,166,'start','chart-text axis-title');
+  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:132,y2:132,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,21,'start','chart-text axis-title'); addChartLabel('人数差',chartBounds.left,137,'start','chart-text axis-title');
   for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle');}
   elements.chartCountSeries.replaceChildren(svgElement('path',{d:stepPath(game,'teamCount',gameY),class:'chart-count-team'}),svgElement('path',{d:stepPath(game,'enemyCount',gameY),class:'chart-count-enemy'}));
-  elements.chartSeries.replaceChildren(svgElement('path',{d:stepPath(alive,'teamAlive',aliveY),class:'chart-team'}),svgElement('path',{d:stepPath(alive,'enemyAlive',aliveY),class:'chart-enemy'}));
-  elements.chartEvents.innerHTML='';currentAnalysis.events.forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.aliveBottom,class:event.type==='death'?'chart-death':'chart-event'}));});
+  elements.chartSeries.innerHTML='';
+  elements.chartEvents.innerHTML='';currentAnalysis.events.filter(event=>event.type!=='death').forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.advantageBottom,class:'chart-event'}));});
 }
 
 function interpolate(points,time) { if(!points?.length)return null;if(time<=points[0][0])return points[0].slice(1);if(time>=points.at(-1)[0])return points.at(-1).slice(1);const index=points.findIndex(point=>point[0]>=time);const left=points[index-1],right=points[index],ratio=(time-left[0])/(right[0]-left[0]);return left.slice(1).map((value,i)=>value+(right[i+1]-value)*ratio); }
@@ -103,7 +101,7 @@ function renderEvents() { elements.eventCount.textContent=`${currentAnalysis.eve
 function renderCapabilities() { const names={segmentation:'試合分割',sceneAnalysis:'画面変化',deaths:'本人デス判定',playerCounts:'生存人数',playerRoute:'プレイヤー動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key]||key;const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }
 
 async function openMatch(recording,match) {
-  currentAnalysis=await(await fetch(match.analysisUrl)).json();elements.recordingView.hidden=true;elements.reviewView.hidden=false;setReviewMode(true);closeMenu();elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);
+  currentAnalysis=await(await fetch(match.analysisUrl)).json();elements.recordingView.hidden=true;elements.reviewView.hidden=false;setReviewMode(true);closeMenu();elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;byId('video-heading').textContent=`バトル映像｜試合 ${String(match.number).padStart(2,'0')}`;elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);
   elements.timelineMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type!=='death').map(event=>{const marker=document.createElement('span');marker.className=`timeline-marker ${event.type}`;marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));
   elements.deathMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type==='death').map(event=>{const marker=document.createElement('span');marker.className='death-track-marker';marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));
   renderChart();renderMapBase();renderEvents();renderCapabilities();updatePlaybackUi();
@@ -111,8 +109,8 @@ async function openMatch(recording,match) {
 
 function updatePlaybackUi() {
   if(!currentAnalysis)return;const time=elements.video.currentTime||0,ratio=Math.max(0,Math.min(1,time/currentAnalysis.media.duration));elements.currentTime.textContent=formatTime(time);elements.seek.value=time;elements.timelineProgress.style.width=`${ratio*100}%`;
-  const alive=playerCountAt(time);if(alive){const difference=alive.difference>0?`${alive.difference}枚有利`:alive.difference<0?`${Math.abs(alive.difference)}枚不利`:'五分';elements.playerCountStatus.textContent=`自軍 ${alive.teamAlive} / 相手 ${alive.enemyAlive}・${difference}`;}else elements.playerCountStatus.textContent='人数 —';
-  const game=gameCountAt(time);elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount} / 相手 ${game.enemyCount}`:'カウント —';elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.countTop,y2:chartBounds.aliveBottom,class:'chart-cursor'}));renderSpatialState(time);
+  const alive=playerCountAt(time);if(alive){const difference=alive.difference>0?`${alive.difference}枚有利`:alive.difference<0?`${Math.abs(alive.difference)}枚不利`:'五分';elements.playerCountStatus.textContent=`人数差 ${difference}`;}else elements.playerCountStatus.textContent='人数差 —';
+  const game=gameCountAt(time);elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount} / 相手 ${game.enemyCount}`:'カウント —';elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.countTop,y2:chartBounds.advantageBottom,class:'chart-cursor'}));renderSpatialState(time);
 }
 
 async function refresh(){try{recordings=await(await fetch('/api/recordings')).json();renderRecordings();}catch(error){console.error(error);}}
