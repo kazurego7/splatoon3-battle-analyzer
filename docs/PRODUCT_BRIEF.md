@@ -47,4 +47,4 @@
 
 ## 参照実装
 
-`../../battle-review-mock-demo` に静的HTML/CSS/JavaScriptのモックを保存している。アプリ本体ではモックを直接拡張せず、必要な仕様を移植する。
+`../../mock` に静的HTML/CSS/JavaScriptのモックを保存している。アプリ本体ではモックを直接拡張せず、必要な仕様を移植する。
