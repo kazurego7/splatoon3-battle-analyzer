@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battle Review</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1>Battle Review</h1></div>
+    </div>
+    <div class="header-actions">
+      <span class="watch-path">data/raw を自動監視</span>
+      <button id="scan-button" type="button">今すぐ確認</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="recordings-panel">
+      <div class="section-heading">
+        <div><p>RECORDINGS</p><h2>録画一覧</h2></div>
+        <span id="recording-count">0件</span>
+      </div>
+      <div id="recording-list" class="recording-list"></div>
+    </aside>
+
+    <section class="content-panel">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">＋</div>
+        <h2>キャプチャ動画を置くだけ</h2>
+        <p><code>data/raw/</code> に動画を置くと、試合分割と分析が自動で始まります。</p>
+      </div>
+
+      <div id="recording-view" hidden>
+        <div class="recording-heading">
+          <div><p class="eyebrow">SELECTED RECORDING</p><h2 id="selected-title"></h2></div>
+          <div class="selected-status"><span id="selected-status"></span><strong id="selected-progress"></strong></div>
+        </div>
+        <div id="recording-error" class="error-box" hidden></div>
+        <div id="match-list" class="match-list"></div>
+      </div>
+
+      <div id="review-view" class="review-view" hidden>
+        <div class="review-toolbar">
+          <button id="back-to-matches" type="button">← 試合一覧</button>
+          <div><p class="eyebrow">MATCH REVIEW</p><h2 id="match-title"></h2></div>
+          <span id="analysis-badge">実動画解析</span>
+        </div>
+
+        <div class="review-grid">
+          <section class="panel video-panel">
+            <div class="video-shell"><video id="match-video" controls playsinline preload="metadata"></video></div>
+            <div class="timeline-status"><strong id="current-time">00:00</strong><span>/</span><span id="duration">00:00</span></div>
+            <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="timeline-markers"></div><input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="再生位置"></div>
+            <div class="chart-legend"><span><i class="motion"></i>画面変化</span><span><i class="hud"></i>HUD検出</span><span><i class="event"></i>分析候補</span></div>
+            <svg id="analysis-chart" viewBox="0 0 1000 230" role="img" aria-label="動画と同期する画面変化とHUD検出グラフ">
+              <g id="chart-grid"></g><g id="chart-series"></g><g id="chart-events"></g><g id="chart-cursor"></g>
+              <rect id="chart-hit" x="0" y="0" width="1000" height="230"></rect>
+            </svg>
+          </section>
+
+          <section class="panel evidence-panel">
+            <div class="panel-heading"><div><p class="eyebrow">DETECTED EVIDENCE</p><h2>分析ポイント</h2></div><span id="event-count"></span></div>
+            <div id="event-list" class="event-list"></div>
+          </section>
+
+          <section class="panel capability-panel">
+            <div class="panel-heading"><div><p class="eyebrow">ANALYSIS COVERAGE</p><h2>解析範囲</h2></div></div>
+            <div id="capability-list" class="capability-list"></div>
+            <p class="coverage-note">実測できていない情報は推測で補わず、「未対応」と明示します。</p>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
