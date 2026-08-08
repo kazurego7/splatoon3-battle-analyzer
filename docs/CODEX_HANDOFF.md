@@ -5,7 +5,8 @@
 - 起動: `npm start`
 - 入力: `../data/raw/`
 - 実装: `src/`、`public/`
-- 診断: `scripts/diagnostics/`
+- 実装済み機能の診断: `scripts/diagnostics/`
+- 未完成機能の実験: `scripts/experiments/`
 - テスト: `npm run check && npm test`
 
 ## 動作済み
@@ -40,3 +41,5 @@
 4. 視認情報に基づく敵味方の短時間予想動線とステージマップ同期
 
 知覚できなかった敵味方の実位置は表示しない。観測値と予想値は解析JSONでもUIでも区別する。
+
+ゲームカウントOCRは現在、`scripts/experiments/game-count/` でフレーム確認・モデル学習・時系列安定化を検証中。Tesseract方式は精度不足のため撤去済みで、軽量な数字モデルを `src/game-count-model.json` に置いている。まだ製品パイプラインや画面には接続していない。

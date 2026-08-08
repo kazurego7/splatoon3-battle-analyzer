@@ -305,3 +305,35 @@ export async function sampleBattleHud(source, duration, { interval = 0.25, onPro
     });
   });
 }
+
+export async function sampleGameCountFrames(source, duration, { interval = 1, onFrame, onProgress } = {}) {
+  const width = 380;
+  const height = 100;
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-vf', `fps=1/${interval},scale=1920:1080,crop=${width}:${height}:760:120`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    const samples = [];
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.stdout.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameSize) {
+        const frame = pending.subarray(0, frameSize);
+        pending = pending.subarray(frameSize);
+        const time = samples.length * interval;
+        samples.push(onFrame ? onFrame(frame, width, height, time) : { time, frame: Buffer.from(frame) });
+        if (samples.length % 20 === 0) onProgress?.(Math.min(1, time / duration));
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(samples);
+      else reject(new Error(`ゲームカウント用フレームの取得に失敗しました: ${stderr.slice(-1500)}`));
+    });
+  });
+}

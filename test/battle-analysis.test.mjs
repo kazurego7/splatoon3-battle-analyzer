@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
+import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -52,4 +53,16 @@ test('detects player advantage, removes isolated flips, and holds through hidden
   assert.deepEqual([at11.teamAlive, at11.enemyAlive, at11.difference], [3, 4, -1]);
   assert.equal(at17.source, 'held');
   assert.ok(at17.confidence < at11.confidence);
+});
+
+test('game count stabilization rejects impossible OCR jumps', () => {
+  const samples = [
+    { time: 10, left: [{ value: 100, cost: 0.04 }] },
+    { time: 11, left: [{ value: 10, cost: 0.01 }, { value: 99, cost: 0.08 }] },
+    { time: 12, left: [{ value: 98, cost: 0.07 }] },
+    { time: 13, left: [] },
+  ];
+  const timeline = stabilizeGameCount(samples, 'left', { gameplayStart: 10, gameplayEnd: 13 });
+  assert.deepEqual(timeline.map(item => item.value), [100, 99, 98, 98]);
+  assert.equal(timeline.at(-1).source, 'held');
 });

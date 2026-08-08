@@ -62,7 +62,7 @@ npm test
 
 データ形式は [ANALYSIS_SCHEMA.md](./docs/ANALYSIS_SCHEMA.md)、体験全体の方針は [PRODUCT_BRIEF.md](./docs/PRODUCT_BRIEF.md) を参照してください。
 
-`scripts/diagnostics/` は解析ロジックの調整用です。アプリの通常利用では直接実行する必要はありません。
+`scripts/diagnostics/` は実装済み解析の確認用、`scripts/experiments/` は未完成機能の検証用です。アプリの通常利用では直接実行する必要はありません。
 
 ## 現在の解析範囲
 

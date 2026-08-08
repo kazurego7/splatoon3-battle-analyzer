@@ -9,7 +9,10 @@
     "inspect": "node scripts/diagnostics/inspect-video.mjs",
     "inspect:deaths": "node scripts/diagnostics/inspect-deaths.mjs",
     "inspect:counts": "node scripts/diagnostics/inspect-player-counts.mjs",
-    "check": "node --check src/server.mjs && node --check src/pipeline.mjs && node --check src/ffmpeg.mjs && node --check src/battle-analysis.mjs && node --check public/app.js && node --check scripts/diagnostics/inspect-video.mjs && node --check scripts/diagnostics/inspect-deaths.mjs && node --check scripts/diagnostics/inspect-player-counts.mjs",
+    "inspect:game-count": "node scripts/experiments/game-count/inspect-frame.mjs",
+    "train:game-count": "node scripts/experiments/game-count/train-model.mjs",
+    "inspect:game-count-timeline": "node scripts/experiments/game-count/inspect-timeline.mjs",
+    "check": "node --check src/server.mjs && node --check src/pipeline.mjs && node --check src/ffmpeg.mjs && node --check src/battle-analysis.mjs && node --check src/game-count-vision.mjs && node --check public/app.js && node --check scripts/diagnostics/inspect-video.mjs && node --check scripts/diagnostics/inspect-deaths.mjs && node --check scripts/diagnostics/inspect-player-counts.mjs && node --check scripts/experiments/game-count/inspect-frame.mjs && node --check scripts/experiments/game-count/train-model.mjs && node --check scripts/experiments/game-count/inspect-timeline.mjs",
     "test": "node --test"
   },
   "engines": {
