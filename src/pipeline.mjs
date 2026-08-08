@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, probeMedia, runFfmpeg, sampleVideo } from './ffmpeg.mjs';
+import { ensureFfmpeg, extractJpeg, probeMedia, runFfmpeg, sampleSelfHud, sampleVideo } from './ffmpeg.mjs';
 import { analysisEvents, classifySamples, detectMatchSegments } from './segmentation.mjs';
+import { detectSelfDeaths } from './battle-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -40,6 +41,36 @@ async function cutMatch(source, destination, segment, codecArgs) {
     '-movflags', '+faststart', '-y', destination,
   ]);
   return probeMedia(destination);
+}
+
+function matchRecord(id, segment, number, clipMedia) {
+  const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
+  return {
+    id: `${id}-match-${String(number).padStart(2, '0')}`,
+    number,
+    fileName,
+    start: segment.start,
+    end: segment.end,
+    duration: clipMedia.duration,
+    status: 'split',
+  };
+}
+
+async function reusableMatches(id, finalClips, segments) {
+  const matches = [];
+  try {
+    for (let index = 0; index < segments.length; index += 1) {
+      const number = index + 1;
+      const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
+      const clipMedia = await probeMedia(path.join(finalClips, fileName));
+      const expectedDuration = segments[index].end - segments[index].start;
+      if (!clipMedia.audioCodec || Math.abs(clipMedia.duration - expectedDuration) > 0.75) return null;
+      matches.push(matchRecord(id, segments[index], number, clipMedia));
+    }
+    return matches;
+  } catch {
+    return null;
+  }
 }
 
 export class Pipeline {
@@ -167,32 +198,28 @@ export class Pipeline {
     if (!segments.length) throw new Error('試合区間を検出できませんでした。HUD検出しきい値の調整が必要です');
     await fs.writeFile(path.join(workDir, 'manifest.json'), `${JSON.stringify({ source: recording.source, segments }, null, 2)}\n`);
 
-    const codecArgs = await encoderArgs(media.codec);
-    const matches = [];
-    for (let index = 0; index < segments.length; index += 1) {
-      const number = index + 1;
-      const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
-      const temporary = path.join(temporaryClips, fileName);
-      await this.store.patch(id, {
-        status: 'splitting',
-        phase: `試合${number}/${segments.length}を分割中`,
-        progress: 0.3 + (index / segments.length) * 0.35,
-      });
-      const clipMedia = await cutMatch(recording.source, temporary, segments[index], codecArgs);
-      if (!clipMedia.audioCodec) throw new Error(`試合${number}の音声ストリームを確認できませんでした`);
-      matches.push({
-        id: `${id}-match-${String(number).padStart(2, '0')}`,
-        number,
-        fileName,
-        start: segments[index].start,
-        end: segments[index].end,
-        duration: clipMedia.duration,
-        status: 'split',
-      });
+    let matches = await reusableMatches(id, finalClips, segments);
+    if (matches) {
+      await this.store.patch(id, { status: 'splitting', phase: '分割済み動画を確認中', progress: 0.65 });
+    } else {
+      const codecArgs = await encoderArgs(media.codec);
+      matches = [];
+      for (let index = 0; index < segments.length; index += 1) {
+        const number = index + 1;
+        const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
+        const temporary = path.join(temporaryClips, fileName);
+        await this.store.patch(id, {
+          status: 'splitting',
+          phase: `試合${number}/${segments.length}を分割中`,
+          progress: 0.3 + (index / segments.length) * 0.35,
+        });
+        const clipMedia = await cutMatch(recording.source, temporary, segments[index], codecArgs);
+        if (!clipMedia.audioCodec) throw new Error(`試合${number}の音声ストリームを確認できませんでした`);
+        matches.push(matchRecord(id, segments[index], number, clipMedia));
+      }
+      await fs.rm(finalClips, { recursive: true, force: true });
+      await fs.rename(temporaryClips, finalClips);
     }
-
-    await fs.rm(finalClips, { recursive: true, force: true });
-    await fs.rename(temporaryClips, finalClips);
     await this.store.patch(id, { matches, status: 'analyzing', phase: '各試合を分析中', progress: 0.68 });
 
     const analysisDir = path.join(ANALYSIS_ROOT, id);
@@ -203,7 +230,27 @@ export class Pipeline {
       const clipPath = path.join(finalClips, match.fileName);
       const thumbnailName = `match-${String(match.number).padStart(2, '0')}.jpg`;
       await extractJpeg(clipPath, Math.min(35, Math.max(1, match.duration / 3)), path.join(thumbnailDir, thumbnailName), 640);
-      const events = analysisEvents(classified, match.start, match.end);
+      const hudCache = path.join(workDir, `self-hud-match-${String(match.number).padStart(2, '0')}.json`);
+      let selfHud;
+      try {
+        const cached = JSON.parse(await fs.readFile(hudCache, 'utf8'));
+        if (cached.version !== 1 || !cached.samples?.length) throw new Error('古いHUDキャッシュ');
+        selfHud = cached.samples;
+      } catch {
+        selfHud = await sampleSelfHud(clipPath, match.duration, {
+          onProgress: ratio => this.store.patch(id, {
+            status: 'analyzing',
+            phase: `試合${index + 1}/${matches.length}のデスを検出中`,
+            progress: 0.68 + ((index + ratio) / matches.length) * 0.3,
+          }).catch(console.error),
+        });
+        await fs.writeFile(hudCache, `${JSON.stringify({ version: 1, samples: selfHud })}\n`);
+      }
+      const gameplayEnd = Math.max(0, segments[index].activeEnd - match.start);
+      const deaths = detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd });
+      const insights = analysisEvents(classified, match.start, match.end)
+        .filter(event => deaths.every(death => Math.abs(death.time - event.time) >= 7));
+      const events = [...deaths, ...insights].sort((a, b) => a.time - b.time);
       const series = classified
         .filter(sample => sample.time >= match.start && sample.time <= match.end)
         .map(sample => ({
@@ -213,7 +260,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 1,
+        version: 2,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -221,10 +268,13 @@ export class Pipeline {
         media: { duration: match.duration, codec: media.codec, width: media.width, height: media.height, fps: media.fps },
         events,
         series,
+        gameFlow: {
+          deaths: { self: deaths.map(death => [death.time, death.duration]) },
+        },
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
-          deaths: 'candidate-only',
+          deaths: 'automatic-self-hud',
           playerRoute: 'not-yet-available',
           gameCountOcr: 'not-yet-available',
         },

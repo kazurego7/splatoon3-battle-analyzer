@@ -169,3 +169,78 @@ export async function sampleVideo(source, duration, { interval = 2, width = 160,
     });
   });
 }
+
+function analyzeSelfHudFrame(frame, width, height, time) {
+  let saturated = 0;
+  let gray = 0;
+  let diagonalDownGray = 0;
+  let diagonalDownPixels = 0;
+  let diagonalUpGray = 0;
+  let diagonalUpPixels = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const at = (y * width + x) * 3;
+      const r = frame[at];
+      const g = frame[at + 1];
+      const b = frame[at + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max ? (max - min) / max : 0;
+      if (saturation >= 0.35 && max >= 70) saturated += 1;
+      const isGray = saturation <= 0.14 && max >= 35 && max <= 210;
+      if (isGray) gray += 1;
+      if (x >= 7 && x <= 60 && y >= 7 && y <= 55) {
+        const diagonalDownX = 9 + (y - 9) * 1.02;
+        const diagonalUpX = 58 - (y - 9) * 1.02;
+        if (Math.abs(x - diagonalDownX) <= 4) {
+          diagonalDownPixels += 1;
+          if (isGray) diagonalDownGray += 1;
+        }
+        if (Math.abs(x - diagonalUpX) <= 4) {
+          diagonalUpPixels += 1;
+          if (isGray) diagonalUpGray += 1;
+        }
+      }
+    }
+  }
+  const pixels = width * height;
+  return {
+    time,
+    saturatedRatio: saturated / pixels,
+    grayRatio: gray / pixels,
+    diagonalDown: diagonalDownGray / Math.max(1, diagonalDownPixels),
+    diagonalUp: diagonalUpGray / Math.max(1, diagonalUpPixels),
+  };
+}
+
+export async function sampleSelfHud(source, duration, { interval = 0.25, onProgress } = {}) {
+  const width = 70;
+  const height = 60;
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-vf', `fps=1/${interval},scale=1920:1080,crop=140:120:790:0,scale=${width}:${height}`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    const samples = [];
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.stdout.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameSize) {
+        const frame = pending.subarray(0, frameSize);
+        pending = pending.subarray(frameSize);
+        const sample = analyzeSelfHudFrame(frame, width, height, samples.length * interval);
+        samples.push(sample);
+        if (samples.length % 40 === 0) onProgress?.(Math.min(1, sample.time / duration));
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(samples);
+      else reject(new Error(`自分のデス状態サンプリングに失敗しました: ${stderr.slice(-1500)}`));
+    });
+  });
+}
