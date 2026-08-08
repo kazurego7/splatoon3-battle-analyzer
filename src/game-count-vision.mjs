@@ -175,6 +175,7 @@ export const countRois = {
 };
 
 const model = JSON.parse(fs.readFileSync(new URL('./game-count-model.json', import.meta.url), 'utf8'));
+export const gameCountModelVersion = model.version;
 const modelSamples = model.samples.map(sample => {
   const packed = Buffer.from(sample.bits, 'base64');
   const mask = new Uint8Array(model.normalWidth * model.normalHeight);
@@ -222,10 +223,26 @@ function numberCandidates(glyphs) {
     .slice(0, 12);
 }
 
+function multiThresholdCandidates(frame, frameWidth, startX, boxWidth) {
+  const byValue = new Map();
+  for (const threshold of [95, 105, 118, 130, 145, 160, 175, 190, 'adaptive']) {
+    const glyphs = extractDigitGlyphs(frame, frameWidth, startX, countRois.y, boxWidth, threshold);
+    for (const candidate of numberCandidates(glyphs)) {
+      const thresholdPenalty = threshold === 'adaptive' ? 0 : Math.abs(Number(threshold) - 140) / 2500;
+      const scored = { ...candidate, cost: candidate.cost + thresholdPenalty, threshold, glyphs: glyphs.length };
+      const previous = byValue.get(candidate.value);
+      if (!previous || scored.cost < previous.cost) byValue.set(candidate.value, scored);
+    }
+  }
+  return [...byValue.values()].sort((left, right) => left.cost - right.cost).slice(0, 18);
+}
+
 export function analyzeGameCountFrame(frame, frameWidth, time) {
-  const leftGlyphs = extractDigitGlyphs(frame, frameWidth, countRois.leftX, countRois.y, countRois.leftWidth, countRois.leftThreshold);
-  const rightGlyphs = extractDigitGlyphs(frame, frameWidth, countRois.rightX, countRois.y, countRois.rightWidth, countRois.rightThreshold);
-  return { time, left: numberCandidates(leftGlyphs), right: numberCandidates(rightGlyphs) };
+  return {
+    time,
+    left: multiThresholdCandidates(frame, frameWidth, countRois.leftX, countRois.leftWidth),
+    right: multiThresholdCandidates(frame, frameWidth, countRois.rightX, countRois.rightWidth),
+  };
 }
 
 function bestBeamEntry(map, key, candidate) {

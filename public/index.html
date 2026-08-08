@@ -8,39 +8,27 @@
 </head>
 <body>
   <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1>Battle Review</h1></div>
-    </div>
-    <div class="header-actions">
-      <span class="watch-path">data/raw を自動監視</span>
-      <button id="scan-button" type="button">今すぐ確認</button>
-    </div>
+    <button id="menu-button" class="menu-button" type="button" aria-label="録画一覧を開く" aria-expanded="false"><span></span><span></span><span></span></button>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1>Battle Review</h1></div></div>
+    <div class="header-actions"><span class="watch-path">data/raw を自動監視</span><button id="scan-button" type="button">今すぐ確認</button></div>
   </header>
 
+  <button id="menu-scrim" class="menu-scrim" type="button" aria-label="録画一覧を閉じる"></button>
   <main class="app-shell">
-    <aside class="recordings-panel">
-      <div class="section-heading">
-        <div><p>RECORDINGS</p><h2>録画一覧</h2></div>
-        <span id="recording-count">0件</span>
-      </div>
+    <aside class="recordings-panel" aria-label="録画一覧">
+      <div class="section-heading"><div><p>RECORDINGS</p><h2>録画一覧</h2></div><span id="recording-count">0件</span></div>
       <div id="recording-list" class="recording-list"></div>
     </aside>
 
     <section class="content-panel">
       <div id="empty-state" class="empty-state">
-        <div class="empty-icon">＋</div>
-        <h2>キャプチャ動画を置くだけ</h2>
+        <div class="empty-icon">＋</div><h2>キャプチャ動画を置くだけ</h2>
         <p><code>data/raw/</code> に動画を置くと、試合分割と分析が自動で始まります。</p>
       </div>
 
       <div id="recording-view" hidden>
-        <div class="recording-heading">
-          <div><p class="eyebrow">SELECTED RECORDING</p><h2 id="selected-title"></h2></div>
-          <div class="selected-status"><span id="selected-status"></span><strong id="selected-progress"></strong></div>
-        </div>
-        <div id="recording-error" class="error-box" hidden></div>
-        <div id="match-list" class="match-list"></div>
+        <div class="recording-heading"><div><p class="eyebrow">SELECTED RECORDING</p><h2 id="selected-title"></h2></div><div class="selected-status"><span id="selected-status"></span><strong id="selected-progress"></strong></div></div>
+        <div id="recording-error" class="error-box" hidden></div><div id="match-list" class="match-list"></div>
       </div>
 
       <div id="review-view" class="review-view" hidden>
@@ -51,28 +39,38 @@
         </div>
 
         <div class="review-grid">
-          <section class="panel video-panel">
-            <div class="video-shell"><video id="match-video" playsinline preload="metadata" tabindex="0" aria-label="試合動画。クリックまたはスペースキーで再生・一時停止"></video></div>
-            <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="player-count-status">人数: —</span></div>
+          <section class="panel video-panel" aria-labelledby="video-heading">
+            <div class="panel-heading"><div><p>VIDEO</p><h2 id="video-heading">バトル映像</h2></div><span id="perception-state">映像内の認識情報のみ表示</span></div>
+            <div class="video-shell">
+              <video id="match-video" playsinline preload="metadata" tabindex="0" aria-label="試合動画。クリックまたはスペースキーで再生・一時停止"></video>
+              <svg id="video-detection-layer" class="video-detection-layer" viewBox="0 0 1920 1080" aria-label="映像で確認できた敵と味方"><g id="video-detections"></g></svg>
+            </div>
+            <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数 —</span></div>
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="timeline-markers"></div><input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="再生位置"></div>
             <div id="death-track" class="death-track" aria-label="自分のデス時刻"><div id="death-markers"></div></div>
-            <div class="chart-legend"><span><i class="team"></i>自軍生存</span><span><i class="enemy"></i>相手生存</span><span><i class="advantage"></i>自軍有利</span><span><i class="disadvantage"></i>自軍不利</span><span><i class="death"></i>自分のデス</span></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 300" role="img" aria-label="動画と同期する敵味方の生存人数と人数差のグラフ">
-              <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-series"></g><g id="chart-events"></g><g id="chart-cursor"></g>
-              <rect id="chart-hit" x="22" y="22" width="956" height="260"></rect>
+            <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="team"></i>自軍生存</span><span><i class="enemy"></i>相手生存</span><span><i class="advantage"></i>人数有利</span><span><i class="death"></i>自分のデス</span></div>
+            <svg id="analysis-chart" viewBox="0 0 1000 400" role="img" aria-label="動画と同期するゲームカウント、生存人数、人数差、自分のデス">
+              <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-series"></g><g id="chart-events"></g><g id="chart-cursor"></g>
+              <rect id="chart-hit" x="34" y="24" width="944" height="346"></rect>
             </svg>
           </section>
 
-          <section class="panel evidence-panel">
-            <div class="panel-heading"><div><p class="eyebrow">DETECTED EVIDENCE</p><h2>分析ポイント</h2></div><span id="event-count"></span></div>
-            <div id="event-list" class="event-list"></div>
+          <section class="panel map-panel" aria-labelledby="map-heading">
+            <div class="panel-heading"><div><p>SPATIAL REVIEW</p><h2 id="map-heading">ステージマップ</h2></div><span id="map-source-status">マップを検出中</span></div>
+            <div class="map-shell">
+              <img id="stage-map-image" alt="映像から観測したステージマップ" hidden>
+              <div id="map-placeholder" class="map-placeholder">録画内のマップ画面を確認しています</div>
+              <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="自分の動線と敵味方の観測・予測位置"><g id="route-layer"></g><g id="entity-layer"></g><g id="player-layer"></g></svg>
+              <div id="map-clock" class="map-clock">00:00</div>
+            </div>
+            <div class="map-legend"><span><i class="self"></i>自分</span><span><i class="ally"></i>味方・観測</span><span><i class="enemy"></i>敵・観測</span><span><i class="prediction"></i>予測</span></div>
           </section>
 
-          <section class="panel capability-panel">
-            <div class="panel-heading"><div><p class="eyebrow">ANALYSIS COVERAGE</p><h2>解析範囲</h2></div></div>
-            <div id="capability-list" class="capability-list"></div>
-            <p class="coverage-note">実測できていない情報は推測で補わず、「未対応」と明示します。</p>
-          </section>
+          <aside class="panel evidence-panel" aria-labelledby="advice-heading">
+            <div class="panel-heading"><div><p>DEATH & ANALYSIS</p><h2 id="advice-heading">分析ポイント</h2></div><span id="event-count"></span></div>
+            <div id="event-list" class="event-list"></div>
+            <details class="coverage-details"><summary>解析範囲を確認</summary><div id="capability-list" class="capability-list"></div><p>観測できない情報を実位置として補完せず、予測は別表示します。</p></details>
+          </aside>
         </div>
       </div>
     </section>

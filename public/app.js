@@ -1,26 +1,28 @@
+const byId = id => document.getElementById(id);
 const elements = {
-  recordingList: document.getElementById('recording-list'), recordingCount: document.getElementById('recording-count'),
-  empty: document.getElementById('empty-state'), recordingView: document.getElementById('recording-view'), reviewView: document.getElementById('review-view'),
-  selectedTitle: document.getElementById('selected-title'), selectedStatus: document.getElementById('selected-status'), selectedProgress: document.getElementById('selected-progress'),
-  error: document.getElementById('recording-error'), matchList: document.getElementById('match-list'), video: document.getElementById('match-video'),
-  matchTitle: document.getElementById('match-title'), eventList: document.getElementById('event-list'), eventCount: document.getElementById('event-count'),
-  currentTime: document.getElementById('current-time'), duration: document.getElementById('duration'), seek: document.getElementById('seek'),
-  timelineProgress: document.getElementById('timeline-progress'), timelineMarkers: document.getElementById('timeline-markers'),
-  deathMarkers: document.getElementById('death-markers'), playerCountStatus: document.getElementById('player-count-status'),
-  chartAdvantage: document.getElementById('chart-advantage'), chartGrid: document.getElementById('chart-grid'), chartSeries: document.getElementById('chart-series'), chartEvents: document.getElementById('chart-events'), chartCursor: document.getElementById('chart-cursor'),
-  capabilityList: document.getElementById('capability-list'), chartHit: document.getElementById('chart-hit'),
+  recordingList:byId('recording-list'), recordingCount:byId('recording-count'), empty:byId('empty-state'), recordingView:byId('recording-view'), reviewView:byId('review-view'),
+  selectedTitle:byId('selected-title'), selectedStatus:byId('selected-status'), selectedProgress:byId('selected-progress'), error:byId('recording-error'), matchList:byId('match-list'),
+  video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), eventCount:byId('event-count'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
+  timelineProgress:byId('timeline-progress'), timelineMarkers:byId('timeline-markers'), deathMarkers:byId('death-markers'), playerCountStatus:byId('player-count-status'), gameCountStatus:byId('game-count-status'),
+  chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartSeries:byId('chart-series'), chartEvents:byId('chart-events'), chartCursor:byId('chart-cursor'), chartHit:byId('chart-hit'),
+  capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'),
+  videoDetections:byId('video-detections'), perceptionState:byId('perception-state'), menuButton:byId('menu-button'), menuScrim:byId('menu-scrim'),
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
+const chartBounds = { left:34, right:978, countTop:40, countBottom:175, aliveTop:225, aliveBottom:335, labelY:385 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
 
-function formatTime(value) { const seconds = Math.max(0, Math.round(Number(value)||0)); return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`; }
-function formatSize(value) { return value >= 1e9 ? `${(value/1e9).toFixed(1)} GB` : `${(value/1e6).toFixed(0)} MB`; }
+function formatTime(value) { const seconds=Math.max(0,Math.round(Number(value)||0)); return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`; }
+function formatSize(value) { return value>=1e9?`${(value/1e9).toFixed(1)} GB`:`${(value/1e6).toFixed(0)} MB`; }
+function svgElement(name,attributes={}) { const element=document.createElementNS('http://www.w3.org/2000/svg',name); Object.entries(attributes).forEach(([key,value])=>element.setAttribute(key,value)); return element; }
+function setReviewMode(active) { document.body.classList.toggle('is-review',active); if(!active) closeMenu(); }
+function closeMenu() { document.body.classList.remove('menu-open'); elements.menuButton.setAttribute('aria-expanded','false'); }
 
 function recordingCard(recording) {
-  const button = document.createElement('button'); button.type='button'; button.className=`recording-card${recording.id===selectedId?' is-selected':''}`;
+  const button=document.createElement('button'); button.type='button'; button.className=`recording-card${recording.id===selectedId?' is-selected':''}`;
   const top=document.createElement('div'); top.className='recording-card-top'; const title=document.createElement('strong'); title.textContent=recording.fileName;
   const badge=document.createElement('span'); badge.className=`status-badge ${recording.status}`; badge.textContent=labels[recording.status]||recording.status; top.append(title,badge);
   const detail=document.createElement('p'); detail.textContent=`${recording.phase}・${formatSize(recording.size)}${recording.matches?.length?`・${recording.matches.length}試合`:''}`;
@@ -29,59 +31,95 @@ function recordingCard(recording) {
 }
 
 function renderRecordings() {
+  if(!selectedId&&recordings.length) selectedId=(recordings.find(item=>item.status==='ready')||recordings[0]).id;
   elements.recordingCount.textContent=`${recordings.length}件`; elements.recordingList.replaceChildren(...recordings.map(recordingCard));
-  if (!selectedId && recordings.length) selectedId=(recordings.find(item=>item.status==='ready')||recordings[0]).id;
-  if (selectedId && !currentAnalysis) renderSelected();
-  elements.empty.hidden=recordings.length>0;
+  if(selectedId&&!currentAnalysis) renderSelected(); elements.empty.hidden=recordings.length>0;
 }
 
-function selectRecording(id) { selectedId=id; currentAnalysis=null; elements.reviewView.hidden=true; renderRecordings(); renderSelected(); }
+function selectRecording(id) { selectedId=id; currentAnalysis=null; elements.video.pause(); elements.video.removeAttribute('src'); elements.reviewView.hidden=true; setReviewMode(false); renderRecordings(); renderSelected(); }
 
-function matchCard(recording, match) {
+function matchCard(recording,match) {
   const card=document.createElement('article'); card.className='match-card'; const image=document.createElement('img'); image.alt=`試合${match.number}のサムネイル`; if(match.thumbnailUrl) image.src=match.thumbnailUrl;
-  const body=document.createElement('div'); body.className='match-card-body'; const top=document.createElement('div'); top.className='match-card-top'; const title=document.createElement('h3'); title.textContent=`試合 ${String(match.number).padStart(2,'0')}`; const badge=document.createElement('span'); badge.className=`status-badge ${match.status==='ready'?'ready':''}`; badge.textContent=match.status==='ready'?'分析済み':'処理中'; top.append(title,badge);
+  const body=document.createElement('div'); body.className='match-card-body'; const top=document.createElement('div'); top.className='match-card-top'; const title=document.createElement('h3'); title.textContent=`試合 ${String(match.number).padStart(2,'0')}`;
+  const badge=document.createElement('span'); badge.className=`status-badge ${match.status==='ready'?'ready':''}`; badge.textContent=match.status==='ready'?'分析済み':'処理中'; top.append(title,badge);
   const detail=document.createElement('p'); detail.textContent=`${formatTime(match.duration)}・分析候補 ${match.eventCount||0}件`;
   const open=document.createElement('button'); open.type='button'; open.disabled=match.status!=='ready'; open.textContent=match.status==='ready'?'振り返りを開く':'分析を待っています'; open.addEventListener('click',()=>openMatch(recording,match));
   body.append(top,detail,open); card.append(image,body); return card;
 }
 
 function renderSelected() {
-  const recording=recordings.find(item=>item.id===selectedId); if(!recording) return;
+  const recording=recordings.find(item=>item.id===selectedId); if(!recording)return;
   elements.recordingView.hidden=false; elements.selectedTitle.textContent=recording.fileName; elements.selectedStatus.textContent=recording.phase; elements.selectedProgress.textContent=`${Math.round((recording.progress||0)*100)}%`;
   elements.error.hidden=!recording.error; elements.error.textContent=recording.error||''; elements.matchList.replaceChildren(...(recording.matches||[]).map(match=>matchCard(recording,match)));
-  if(recording.status==='error') { const retry=document.createElement('button'); retry.type='button'; retry.textContent='再分析する'; retry.addEventListener('click',async()=>{await fetch(`/api/recordings/${encodeURIComponent(recording.id)}/retry`,{method:'POST'}); await refresh();}); elements.error.append(document.createElement('br'),retry); }
+  if(recording.status==='error'){const retry=document.createElement('button');retry.type='button';retry.textContent='再分析する';retry.addEventListener('click',async()=>{await fetch(`/api/recordings/${encodeURIComponent(recording.id)}/retry`,{method:'POST'});await refresh();});elements.error.append(document.createElement('br'),retry);}
 }
 
-const chartBounds = { left:22, right:978, top:40, bottom:220 };
 function chartX(time) { return chartBounds.left+(time/currentAnalysis.media.duration)*(chartBounds.right-chartBounds.left); }
-function countY(count) { return chartBounds.bottom-(Math.max(0,Math.min(4,count))/4)*(chartBounds.bottom-chartBounds.top); }
-function svgElement(name,attributes={}) { const element=document.createElementNS('http://www.w3.org/2000/svg',name); Object.entries(attributes).forEach(([key,value])=>element.setAttribute(key,value)); return element; }
-function countStepPath(counts,key) { if(!counts.length)return''; let path=`M ${chartX(counts[0].time)} ${countY(counts[0][key])}`; for(let index=1;index<counts.length;index+=1){const item=counts[index];path+=` H ${chartX(item.time)} V ${countY(item[key])}`;} return path; }
-function playerCountAt(time) { const counts=currentAnalysis?.gameFlow?.playerCounts||[]; let result=null; for(const item of counts){if(item.time>time+0.5)break;result=item;} return result&&time-result.time<=1.5?result:null; }
+function aliveY(count) { return chartBounds.aliveBottom-(Math.max(0,Math.min(4,count))/4)*(chartBounds.aliveBottom-chartBounds.aliveTop); }
+function gameY(count) { return chartBounds.countTop+((100-Math.max(0,Math.min(100,count)))/100)*(chartBounds.countBottom-chartBounds.countTop); }
+function stepPath(points,key,yScale) { if(!points.length)return'';let path=`M ${chartX(points[0].time)} ${yScale(points[0][key])}`;for(let index=1;index<points.length;index+=1){const item=points[index];path+=` H ${chartX(item.time)} V ${yScale(item[key])}`;}return path; }
+function stateAt(points,time,maxAge=2) { let result=null;for(const item of points){if(item.time>time+.5)break;result=item;}return result&&time-result.time<=maxAge?result:null; }
+function playerCountAt(time) { return stateAt(currentAnalysis?.gameFlow?.playerCounts||[],time,1.5); }
+function gameCountAt(time) { return stateAt(currentAnalysis?.gameFlow?.gameCounts||[],time,3); }
 
+function addChartLabel(text,x,y,anchor='end',className='chart-text') { const label=svgElement('text',{x,y,'text-anchor':anchor,class:className});label.textContent=text;elements.chartGrid.append(label); }
 function renderChart() {
-  const duration=currentAnalysis.media.duration;
-  const counts=currentAnalysis.gameFlow?.playerCounts||[];
-  elements.chartAdvantage.innerHTML='';
-  counts.forEach((item,index)=>{const next=counts[index+1];const end=next?.time??duration;if(end<=item.time)return;const rect=svgElement('rect',{x:chartX(item.time),y:chartBounds.top,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.bottom-chartBounds.top,class:`chart-advantage ${item.difference>0?'positive':item.difference<0?'negative':'even'} ${item.source==='held'?'held':''}`});elements.chartAdvantage.append(rect);});
+  const duration=currentAnalysis.media.duration; const alive=currentAnalysis.gameFlow?.playerCounts||[]; const game=currentAnalysis.gameFlow?.gameCounts||[];
+  elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.aliveTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.aliveBottom-chartBounds.aliveTop,class:`chart-advantage ${item.difference>0?'positive':item.difference<0?'negative':'even'} ${item.source==='held'?'held':''}`}));});
   elements.chartGrid.innerHTML='';
-  for(let count=0;count<=4;count+=1){const y=countY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));const label=svgElement('text',{x:chartBounds.left-7,y:y+5,'text-anchor':'end',class:'chart-text count-label'});label.textContent=count;elements.chartGrid.append(label);}
-  for(let i=0;i<=6;i+=1){const time=duration*i/6;const x=chartX(time);const text=svgElement('text',{x,y:278,'text-anchor':i===0?'start':i===6?'end':'middle',class:'chart-text'});text.textContent=formatTime(time);elements.chartGrid.append(text);}
-  const team=svgElement('path',{d:countStepPath(counts,'teamAlive'),class:'chart-team'});const enemy=svgElement('path',{d:countStepPath(counts,'enemyAlive'),class:'chart-enemy'});elements.chartSeries.replaceChildren(team,enemy);
-  elements.chartEvents.innerHTML=''; currentAnalysis.events.forEach(event=>{const x=chartX(event.time);const line=svgElement('line',{x1:x,x2:x,y1:chartBounds.top,y2:chartBounds.bottom,class:event.type==='death'?'chart-death':'chart-event'});elements.chartEvents.append(line);});
+  [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
+  [0,1,2,3,4].forEach(count=>{const y=aliveY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
+  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:201,y2:201,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,29,'start','chart-text axis-title'); addChartLabel('生存人数',chartBounds.left,216,'start','chart-text axis-title');
+  for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle');}
+  elements.chartCountSeries.replaceChildren(svgElement('path',{d:stepPath(game,'teamCount',gameY),class:'chart-count-team'}),svgElement('path',{d:stepPath(game,'enemyCount',gameY),class:'chart-count-enemy'}));
+  elements.chartSeries.replaceChildren(svgElement('path',{d:stepPath(alive,'teamAlive',aliveY),class:'chart-team'}),svgElement('path',{d:stepPath(alive,'enemyAlive',aliveY),class:'chart-enemy'}));
+  elements.chartEvents.innerHTML='';currentAnalysis.events.forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.aliveBottom,class:event.type==='death'?'chart-death':'chart-event'}));});
 }
 
-function renderEvents() { elements.eventCount.textContent=`${currentAnalysis.events.length}件`; elements.eventList.replaceChildren(...currentAnalysis.events.map(event=>{const button=document.createElement('button');button.type='button';button.className=`event-item ${event.type}`;const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const copy=document.createElement('span');copy.className='event-copy';const title=document.createElement('strong');title.textContent=event.title;const detail=document.createElement('span');detail.textContent=`${event.detail}・確度 ${Math.round(event.confidence*100)}%`;copy.append(title,detail);button.append(time,copy);button.addEventListener('click',()=>{elements.video.currentTime=Math.max(0,event.time-(event.type==='death'?8:4));});return button;})); }
+function interpolate(points,time) { if(!points?.length)return null;if(time<=points[0][0])return points[0].slice(1);if(time>=points.at(-1)[0])return points.at(-1).slice(1);const index=points.findIndex(point=>point[0]>=time);const left=points[index-1],right=points[index],ratio=(time-left[0])/(right[0]-left[0]);return left.slice(1).map((value,i)=>value+(right[i+1]-value)*ratio); }
 
-function renderCapabilities() { const names={segmentation:'試合分割',sceneAnalysis:'画面変化',deaths:'デス判定',playerCounts:'生存人数',playerRoute:'プレイヤー動線',gameCountOcr:'ゲームカウント'}; elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key]||key;const state=document.createElement('span');const available=!value.includes('not-yet');state.className=available?(value.includes('candidate')?'limited':'available'):'limited';state.textContent=available?(value.includes('candidate')?'候補検出':'利用可能'):'未対応';row.append(name,state);return row;})); }
+function renderMapBase() {
+  const map=currentAnalysis.stageMap;
+  elements.routeLayer.innerHTML=''; elements.entityLayer.innerHTML=''; elements.playerLayer.innerHTML='';
+  if(map?.imageUrl){elements.stageMapImage.src=map.imageUrl;elements.stageMapImage.hidden=false;elements.mapPlaceholder.hidden=true;elements.mapSourceStatus.textContent=`映像 ${formatTime(map.observedAt)} で観測`;}else{elements.stageMapImage.hidden=true;elements.mapPlaceholder.hidden=false;elements.mapSourceStatus.textContent='マップ未検出';}
+  const route=currentAnalysis.route||currentAnalysis.playerRoute||[];
+  route.slice(0,-1).forEach((point,index)=>{const next=route[index+1];const line=svgElement('line',{x1:point[1]??point.x,y1:point[2]??point.y,x2:next[1]??next.x,y2:next[2]??next.y,class:`route-segment ${(point.source||next.source)==='predicted'?'predicted':''}`});line.dataset.time=point[0]??point.time;elements.routeLayer.append(line);});
+}
 
-async function openMatch(recording,match) { currentAnalysis=await (await fetch(match.analysisUrl)).json(); elements.recordingView.hidden=true;elements.reviewView.hidden=false;elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);elements.timelineMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type!=='death').map(event=>{const marker=document.createElement('span');marker.className=`timeline-marker ${event.type}`;marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));elements.deathMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type==='death').map(event=>{const marker=document.createElement('span');marker.className='death-track-marker';marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));renderChart();renderEvents();renderCapabilities();updatePlaybackUi(); }
+function renderVideoDetections(time) {
+  const detections=(currentAnalysis.detections||[]).filter(item=>time>=item.frames?.[0]?.[0]&&time<=item.frames?.at(-1)?.[0]); elements.videoDetections.innerHTML='';
+  detections.forEach(item=>{const values=interpolate(item.frames,time);if(!values)return;const [x,y,width,height]=values;const normalized=x<=1&&y<=1;const px=normalized?x*1920:x,py=normalized?y*1080:y,pw=normalized?width*1920:width,ph=normalized?height*1080:height;const group=svgElement('g');group.append(svgElement('rect',{x:px,y:py,width:pw,height:ph,rx:8,class:`detection-box ${item.team}`}));const text=`${item.team==='enemy'?'敵':'味方'}｜${item.weapon||'ブキ未特定'}`;group.append(svgElement('rect',{x:px,y:Math.max(0,py-38),width:Math.max(170,text.length*28),height:38,rx:6,class:'detection-label-bg'}));const label=svgElement('text',{x:px+10,y:Math.max(27,py-11),class:'detection-label'});label.textContent=text;group.append(label);elements.videoDetections.append(group);});
+  elements.perceptionState.textContent=detections.length?`映像で敵味方 ${detections.length}件を観測`:'映像内の認識情報のみ表示';
+}
 
-function updatePlaybackUi(){if(!currentAnalysis)return;const time=elements.video.currentTime||0;const ratio=Math.max(0,Math.min(1,time/currentAnalysis.media.duration));elements.currentTime.textContent=formatTime(time);elements.seek.value=time;elements.timelineProgress.style.width=`${ratio*100}%`;const count=playerCountAt(time);if(count){const difference=count.difference>0?`${count.difference}枚有利`:count.difference<0?`${Math.abs(count.difference)}枚不利`:'同数';elements.playerCountStatus.textContent=`自軍 ${count.teamAlive} / 相手 ${count.enemyAlive}・${difference}`;}else{elements.playerCountStatus.textContent='人数: —';}elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.top,y2:chartBounds.bottom,class:'chart-cursor'}));}
+function renderSpatialState(time) {
+  const route=currentAnalysis.route||currentAnalysis.playerRoute||[]; [...elements.routeLayer.children].forEach(line=>{const distance=Math.abs(Number(line.dataset.time)-time);line.style.opacity=distance<=12?.95:distance<=35?.32:.08;});
+  elements.entityLayer.innerHTML='';elements.playerLayer.innerHTML='';const player=interpolate(route,time);if(player){elements.playerLayer.append(svgElement('circle',{cx:player[0],cy:player[1],r:17,class:'map-player'}));}
+  const active=(currentAnalysis.detections||[]).filter(item=>time>=item.frames?.[0]?.[0]&&time<=item.frames?.at(-1)?.[0]);active.forEach(item=>{const values=interpolate(item.frames,time);if(!values||values.length<6)return;const x=values[4],y=values[5];elements.entityLayer.append(svgElement('circle',{cx:x,cy:y,r:18,class:`map-observed ${item.team}`}));});
+  elements.mapClock.textContent=formatTime(time);renderVideoDetections(time);
+}
+
+function renderEvents() { elements.eventCount.textContent=`${currentAnalysis.events.length}件`;elements.eventList.replaceChildren(...currentAnalysis.events.map(event=>{const button=document.createElement('button');button.type='button';button.className=`event-item ${event.type}`;const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const copy=document.createElement('span');copy.className='event-copy';const title=document.createElement('strong');title.textContent=event.title;const detail=document.createElement('span');detail.textContent=`${event.detail}・確度 ${Math.round(event.confidence*100)}%`;copy.append(title,detail);button.append(time,copy);button.addEventListener('click',()=>{elements.video.currentTime=Math.max(0,event.time-(event.type==='death'?8:4));updatePlaybackUi();});return button;})); }
+function renderCapabilities() { const names={segmentation:'試合分割',sceneAnalysis:'画面変化',deaths:'本人デス判定',playerCounts:'生存人数',playerRoute:'プレイヤー動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key]||key;const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }
+
+async function openMatch(recording,match) {
+  currentAnalysis=await(await fetch(match.analysisUrl)).json();elements.recordingView.hidden=true;elements.reviewView.hidden=false;setReviewMode(true);closeMenu();elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);
+  elements.timelineMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type!=='death').map(event=>{const marker=document.createElement('span');marker.className=`timeline-marker ${event.type}`;marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));
+  elements.deathMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type==='death').map(event=>{const marker=document.createElement('span');marker.className='death-track-marker';marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));
+  renderChart();renderMapBase();renderEvents();renderCapabilities();updatePlaybackUi();
+}
+
+function updatePlaybackUi() {
+  if(!currentAnalysis)return;const time=elements.video.currentTime||0,ratio=Math.max(0,Math.min(1,time/currentAnalysis.media.duration));elements.currentTime.textContent=formatTime(time);elements.seek.value=time;elements.timelineProgress.style.width=`${ratio*100}%`;
+  const alive=playerCountAt(time);if(alive){const difference=alive.difference>0?`${alive.difference}枚有利`:alive.difference<0?`${Math.abs(alive.difference)}枚不利`:'五分';elements.playerCountStatus.textContent=`自軍 ${alive.teamAlive} / 相手 ${alive.enemyAlive}・${difference}`;}else elements.playerCountStatus.textContent='人数 —';
+  const game=gameCountAt(time);elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount} / 相手 ${game.enemyCount}`:'カウント —';elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.countTop,y2:chartBounds.aliveBottom,class:'chart-cursor'}));renderSpatialState(time);
+}
 
 async function refresh(){try{recordings=await(await fetch('/api/recordings')).json();renderRecordings();}catch(error){console.error(error);}}
 function toggleVideoPlayback(){if(elements.video.paused)elements.video.play().catch(console.error);else elements.video.pause();}
-elements.video.addEventListener('click',toggleVideoPlayback);elements.video.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();toggleVideoPlayback();}});
-elements.video.addEventListener('timeupdate',updatePlaybackUi);elements.seek.addEventListener('input',()=>{elements.video.currentTime=Number(elements.seek.value);updatePlaybackUi();});elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;const bounds=event.currentTarget.closest('svg').getBoundingClientRect();const plotLeft=bounds.left+bounds.width*(chartBounds.left/1000);const plotWidth=bounds.width*((chartBounds.right-chartBounds.left)/1000);elements.video.currentTime=Math.max(0,Math.min(1,(event.clientX-plotLeft)/plotWidth))*currentAnalysis.media.duration;updatePlaybackUi();});
-document.getElementById('back-to-matches').addEventListener('click',()=>{currentAnalysis=null;elements.video.pause();elements.video.removeAttribute('src');elements.reviewView.hidden=true;renderSelected();});document.getElementById('scan-button').addEventListener('click',async()=>{await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh();});
+elements.video.addEventListener('click',toggleVideoPlayback);elements.video.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();toggleVideoPlayback();}});elements.video.addEventListener('timeupdate',updatePlaybackUi);elements.seek.addEventListener('input',()=>{elements.video.currentTime=Number(elements.seek.value);updatePlaybackUi();});
+elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;const bounds=event.currentTarget.closest('svg').getBoundingClientRect(),plotLeft=bounds.left+bounds.width*(chartBounds.left/1000),plotWidth=bounds.width*((chartBounds.right-chartBounds.left)/1000);elements.video.currentTime=Math.max(0,Math.min(1,(event.clientX-plotLeft)/plotWidth))*currentAnalysis.media.duration;updatePlaybackUi();});
+byId('back-to-matches').addEventListener('click',()=>{currentAnalysis=null;elements.video.pause();elements.video.removeAttribute('src');elements.reviewView.hidden=true;setReviewMode(false);renderSelected();});
+byId('scan-button').addEventListener('click',async()=>{await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh();});
+elements.menuButton.addEventListener('click',()=>{const open=document.body.classList.toggle('menu-open');elements.menuButton.setAttribute('aria-expanded',String(open));});elements.menuScrim.addEventListener('click',closeMenu);
 await refresh();setInterval(refresh,2000);

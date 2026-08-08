@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
+import { findSelfResultRow } from '../src/player-identity.mjs';
+import { analyzeMapCandidate, selectObservedMapFrame } from '../src/map-analysis.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -65,4 +67,38 @@ test('game count stabilization rejects impossible OCR jumps', () => {
   const timeline = stabilizeGameCount(samples, 'left', { gameplayStart: 10, gameplayEnd: 13 });
   assert.deepEqual(timeline.map(item => item.value), [100, 99, 98, 98]);
   assert.equal(timeline.at(-1).source, 'held');
+});
+
+test('finds the yellow self marker only on a detailed result table', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 28);
+  const paint = (left, top, boxWidth, boxHeight, color) => {
+    for (let y = top; y < top + boxHeight; y += 1) {
+      for (let x = left; x < left + boxWidth; x += 1) {
+        const at = (y * width + x) * 3;
+        frame[at] = color[0]; frame[at + 1] = color[1]; frame[at + 2] = color[2];
+      }
+    }
+  };
+  for (let y = 150; y < 510; y += 30) paint(500, y, 16, 30, [230, 230, 230]);
+  paint(468, 404, 22, 22, [245, 195, 20]);
+  const result = findSelfResultRow(frame);
+  assert.ok(result);
+  assert.equal(result.resultRows, 12);
+  assert.equal(result.marker.x, 468);
+  assert.equal(result.marker.y, 404);
+});
+
+test('selects an observed map frame inside a death review window', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 20);
+  for (let y = 20; y < 520; y += 1) for (let x = 240; x < 720; x += 1) {
+    const at = (y * width + x) * 3; frame[at] = 125; frame[at + 1] = 125; frame[at + 2] = 125;
+  }
+  const map = analyzeMapCandidate(frame, width, height, 12);
+  const selected = selectObservedMapFrame([{ time: 3, neutralRatio: 0.02, edgeRatio: 0.01, score: 0.02 }, map], [{ time: 8 }]);
+  assert.equal(selected.time, 12);
+  assert.equal(selected.source, 'observed-map-screen');
 });

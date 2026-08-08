@@ -23,11 +23,22 @@
 - `series[].motion`: 連続フレームの画面変化量
 - `series[].hud`: HUDらしさのスコア
 - `gameFlow.deaths.self`: 自分のデス開始秒と、次に生存表示を確認するまでの秒数
+- `playerIdentity`: リザルトの自分行とブキ画像をHUDへ照合した結果
+  - `hudSlot`: 自軍HUDの左から何番目か（0始まり）
+  - `method`: 同じ試合のリザルトを使った `result-row-weapon-match`、または直前試合から引き継いだ `carried-result-weapon-match`
+  - `confidence`: リザルトのブキ形状とHUDアイコンの照合確度
 - `gameFlow.playerCounts[]`: 1秒ごとの自軍・相手の生存人数と人数差
   - `teamAlive` / `enemyAlive`: 0〜4人の生存人数
   - `difference`: `teamAlive - enemyAlive`
   - `source`: その秒を直接読めた `observed`、または直近観測を最大5秒保持した `held`
   - `confidence`: HUDの観測継続性から算出した0〜1の確度
+- `gameFlow.gameCounts[]`: ゲームカウントの観測時系列
+  - `teamCount` / `enemyCount`: 画面上部から読んだ自軍・相手カウント
+  - `source`: 直接観測した `observed`、または短時間の補間値
+- `stageMap`: 映像内で実際に開かれたマップ画面
+  - `imageUrl`: 観測フレームから切り出した画像
+  - `observedAt`: 試合動画内の観測秒
+  - `source`: 現在は `observed-video-map-screen`
 - `capabilities`: 各解析機能の実装・精度段階
 
-未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。将来、デス・カウント・位置推定を追加するときも、観測値と推定値の根拠を分離して保存します。
+現在の解析JSONはバージョン5です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed` と、そこから予測した `predicted` を分離して保存します。

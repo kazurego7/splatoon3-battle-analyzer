@@ -56,6 +56,16 @@ export async function extractJpeg(source, at, output, width = 640) {
   return output;
 }
 
+export async function extractJpegCrop(source, at, output, { x, y, width, height, outputWidth = 720, outputHeight = 720 }) {
+  await fsp.mkdir(path.dirname(output), { recursive: true });
+  await runFfmpeg([
+    '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, at)), '-i', source,
+    '-frames:v', '1', '-vf', `scale=1920:1080,crop=${width}:${height}:${x}:${y},scale=${outputWidth}:${outputHeight}`,
+    '-q:v', '3', '-y', output,
+  ]);
+  return output;
+}
+
 export function analyzeRgbFrame(buffer, previous, width, height, time) {
   let brightness = 0;
   let saturation = 0;
@@ -334,6 +344,57 @@ export async function sampleGameCountFrames(source, duration, { interval = 1, on
     child.on('close', code => {
       if (code === 0) resolve(samples);
       else reject(new Error(`ゲームカウント用フレームの取得に失敗しました: ${stderr.slice(-1500)}`));
+    });
+  });
+}
+
+export async function extractRgbFrame(source, time, { width = 960, height = 540 } = {}) {
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-ss', Math.max(0, time).toFixed(3), '-i', source,
+      '-frames:v', '1', '-vf', `scale=${width}:${height}`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stdout.on('data', chunk => { pending = Buffer.concat([pending, chunk]); });
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code !== 0) return reject(new Error(`本人確認フレームの取得に失敗しました: ${stderr.slice(-1500)}`));
+      if (pending.length < frameSize) return reject(new Error('本人確認フレームを最後まで取得できませんでした'));
+      resolve(Buffer.from(pending.subarray(0, frameSize)));
+    });
+  });
+}
+
+export async function sampleRgbWindow(source, start, end, { interval = 1, width = 960, height = 540, onFrame } = {}) {
+  const duration = Math.max(0, end - start);
+  const frameSize = width * height * 3;
+  return new Promise((resolve, reject) => {
+    const child = spawn(FFMPEG_PATH, [
+      '-hide_banner', '-loglevel', 'error', '-ss', Math.max(0, start).toFixed(3), '-i', source,
+      '-t', duration.toFixed(3), '-vf', `fps=1/${interval},scale=${width}:${height}`,
+      '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
+    ], { windowsHide: true });
+    const samples = [];
+    let pending = Buffer.alloc(0);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.stdout.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameSize) {
+        const frame = Buffer.from(pending.subarray(0, frameSize));
+        pending = pending.subarray(frameSize);
+        const time = start + samples.length * interval;
+        samples.push(onFrame ? onFrame(frame, width, height, time) : { time, frame });
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(samples);
+      else reject(new Error(`本人確認区間の取得に失敗しました: ${stderr.slice(-1500)}`));
     });
   });
 }

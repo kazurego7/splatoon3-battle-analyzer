@@ -2,9 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, probeMedia, runFfmpeg, sampleBattleHud, sampleVideo } from './ffmpeg.mjs';
+import { ensureFfmpeg, extractJpeg, extractJpegCrop, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
 import { analysisEvents, classifySamples, detectMatchSegments } from './segmentation.mjs';
 import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
+import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
+import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
+import { analyzeMapCandidate, selectObservedMapFrame } from './map-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -225,6 +228,7 @@ export class Pipeline {
     const analysisDir = path.join(ANALYSIS_ROOT, id);
     const thumbnailDir = path.join(THUMBNAIL_ROOT, id);
     await Promise.all([fs.mkdir(analysisDir, { recursive: true }), fs.mkdir(thumbnailDir, { recursive: true })]);
+    let previousIdentityResult = null;
     for (let index = 0; index < matches.length; index += 1) {
       const match = matches[index];
       const clipPath = path.join(finalClips, match.fileName);
@@ -247,9 +251,82 @@ export class Pipeline {
         await fs.writeFile(hudCache, `${JSON.stringify({ version: 2, samples: battleHud })}\n`);
       }
       const gameplayEnd = Math.max(0, segments[index].activeEnd - match.start);
-      const selfHud = battleHud.map(sample => ({ time: sample.time, ...sample.self }));
-      const deaths = detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd });
+      const identityEnd = segments[index + 1]
+        ? Math.max(segments[index].activeEnd + 1, segments[index + 1].start - 3)
+        : Math.min(media.duration, segments[index].activeEnd + 70);
+      await this.store.patch(id, {
+        status: 'analyzing',
+        phase: `試合${index + 1}/${matches.length}の本人ブキを照合中`,
+        progress: 0.68 + ((index + 0.82) / matches.length) * 0.3,
+      });
+      const hudIdentityFrame = await extractRgbFrame(recording.source, match.start + Math.min(20, Math.max(8, gameplayEnd / 3)));
+      const identitySamples = await sampleRgbWindow(recording.source, segments[index].activeEnd, identityEnd);
+      const directIdentityResult = findIdentityResult(identitySamples);
+      const identityReference = directIdentityResult || previousIdentityResult;
+      const identityMatch = identityReference
+        ? identifySelfHudSlot(identityReference.frame, identityReference.resultRow, hudIdentityFrame)
+        : null;
+      if (directIdentityResult) previousIdentityResult = directIdentityResult;
+      const identityConfirmed = Boolean(identityMatch && identityMatch.confidence >= 0.05);
+      const identity = {
+        status: identityConfirmed ? 'confirmed' : 'unconfirmed',
+        method: directIdentityResult ? 'result-row-weapon-match' : identityReference ? 'carried-result-weapon-match' : 'result-not-found',
+        hudSlot: identityConfirmed ? identityMatch.slot : null,
+        confidence: identityMatch?.confidence || 0,
+        resultTime: directIdentityResult?.time == null ? null : Number((directIdentityResult.time - match.start).toFixed(2)),
+        scores: identityMatch?.scores || [],
+      };
+      const selfHud = identityConfirmed
+        ? battleHud.map(sample => ({ time: sample.time, ...sample.team[identityMatch.slot] }))
+        : [];
+      const deaths = identityConfirmed ? detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd }) : [];
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
+      const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
+      let gameCountSamples;
+      try {
+        const cached = JSON.parse(await fs.readFile(gameCountCache, 'utf8'));
+        if (cached.modelVersion !== gameCountModelVersion || !cached.samples?.length) throw new Error('古いゲームカウントキャッシュ');
+        gameCountSamples = cached.samples;
+      } catch {
+        gameCountSamples = await sampleGameCountFrames(clipPath, match.duration, {
+          onFrame: (frame, width, _height, time) => analyzeGameCountFrame(frame, width, time),
+          onProgress: ratio => this.store.patch(id, {
+            status: 'analyzing',
+            phase: `試合${index + 1}/${matches.length}のゲームカウントを読取中`,
+            progress: 0.68 + ((index + 0.84 + ratio * 0.12) / matches.length) * 0.3,
+          }).catch(console.error),
+        });
+        await fs.writeFile(gameCountCache, `${JSON.stringify({ modelVersion: gameCountModelVersion, samples: gameCountSamples })}\n`);
+      }
+      const gameCounts = detectGameCounts(gameCountSamples, { gameplayEnd });
+      const mapCache = path.join(workDir, `map-candidates-match-${String(match.number).padStart(2, '0')}.json`);
+      let mapCandidates;
+      try {
+        const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
+        if (cached.version !== 1 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
+        mapCandidates = cached.samples;
+      } catch {
+        mapCandidates = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+          interval: 1,
+          onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
+        });
+        await fs.writeFile(mapCache, `${JSON.stringify({ version: 1, samples: mapCandidates })}\n`);
+      }
+      const observedMap = selectObservedMapFrame(mapCandidates, deaths);
+      let stageMap = null;
+      if (observedMap) {
+        const mapName = `match-${String(match.number).padStart(2, '0')}-map.jpg`;
+        await extractJpegCrop(clipPath, observedMap.time, path.join(thumbnailDir, mapName), {
+          x: 440, y: 20, width: 1040, height: 1040, outputWidth: 720, outputHeight: 720,
+        });
+        stageMap = {
+          imageUrl: relativeMediaPath('thumbnails', id, mapName),
+          observedAt: observedMap.time,
+          source: observedMap.source,
+          confidence: observedMap.confidence,
+          coordinateSpace: { width: 1000, height: 1000 },
+        };
+      }
       const insights = analysisEvents(classified, match.start, match.end)
         .filter(event => deaths.every(death => Math.abs(death.time - event.time) >= 7));
       const events = [...deaths, ...insights].sort((a, b) => a.time - b.time);
@@ -262,7 +339,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 3,
+        version: 5,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -273,14 +350,18 @@ export class Pipeline {
         gameFlow: {
           deaths: { self: deaths.map(death => [death.time, death.duration]) },
           playerCounts,
+          gameCounts,
         },
+        playerIdentity: identity,
+        stageMap,
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
-          deaths: 'automatic-self-hud',
+          deaths: identityConfirmed ? 'automatic-result-matched-self-hud' : 'unavailable-self-not-confirmed',
           playerCounts: 'automatic-battle-hud',
           playerRoute: 'not-yet-available',
-          gameCountOcr: 'not-yet-available',
+          stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
+          gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },
       };
       const analysisName = `match-${String(match.number).padStart(2, '0')}.json`;
