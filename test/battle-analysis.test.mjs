@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, analyzeMapCloseButton, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, analyzeMapCloseButton, analyzeMapPanelConnections, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
 import { classifyWeaponFeature, weaponCatalogMetadata, weaponReferenceFeature } from '../src/weapon-analysis.mjs';
@@ -222,21 +222,49 @@ test('detects ally markers using the self-panel team color and a white direction
   assert.ok(Math.abs(teamColor.hue - 55) <= 8);
 });
 
-test('removes repeated static map icons and predicts an ally from the observed facing direction', () => {
-  const staticMarker = { x: 150, y: 850, directionDegrees: 0, confidence: 0.7, evidence: { innerWhiteRatio: 0.22 } };
+test('uses panel-connected allies, removes static icons, and does not treat the D-pad arrow as movement', () => {
+  const panelConnection = { panel: 'right', confidence: 0.8, source: 'observed-teammate-panel-connector' };
+  const staticMarker = { x: 150, y: 850, directionDegrees: 0, confidence: 0.7, evidence: { innerWhiteRatio: 0.22 }, panelConnection };
   const samples = [10, 20, 30].map((time, index) => ({
     time,
     neutralRatio: 0.48,
     mapUi: { visible: true },
-    allies: [staticMarker, { x: 300 + index * 60, y: 600 - index * 20, directionDegrees: 330, confidence: 0.75, evidence: { innerWhiteRatio: 0.08 } }],
+    allies: [staticMarker, { x: 300 + index * 60, y: 600 - index * 20, directionDegrees: 330, confidence: 0.75, evidence: { innerWhiteRatio: 0.08 }, panelConnection }],
   }));
   const tracks = detectAllyTracks(samples);
   assert.equal(tracks.length, 1);
   assert.equal(tracks[0].frames.length, 3);
-  const predictions = buildEntityPredictions(tracks);
-  assert.equal(predictions.length, 3);
-  assert.equal(predictions[0].team, 'ally');
-  assert.ok(predictions[0].frames.at(-1).x > predictions[0].frames[0].x);
+  assert.equal(tracks[0].frames[0].source, 'observed-map-panel-connected-ally');
+  assert.equal(tracks[0].frames[0].directionDegrees, null);
+  assert.equal(tracks[0].frames[0].evidence.dpadPointerDegrees, 330);
+  assert.equal(buildEntityPredictions(tracks).length, 0);
+});
+
+test('links a teammate marker to its panel through a dotted connector', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 35);
+  const marker = { screenX: 360, screenY: 320, confidence: 0.8, evidence: { innerWhiteRatio: 0.05 } };
+  const anchor = { x: 688, y: 273 };
+  const deltaX = marker.screenX - anchor.x;
+  const deltaY = marker.screenY - anchor.y;
+  const length = Math.hypot(deltaX, deltaY);
+  for (let distance = 24; distance < length - 18; distance += 14) {
+    for (let along = 0; along < 7; along += 1) {
+      const ratio = (distance + along) / length;
+      const x = Math.round(anchor.x + deltaX * ratio);
+      const y = Math.round(anchor.y + deltaY * ratio);
+      for (let offset = -2; offset <= 2; offset += 1) {
+        const at = ((y + offset) * width + x) * 3;
+        frame[at] = 230; frame[at + 1] = 230; frame[at + 2] = 230;
+      }
+    }
+  }
+  const connections = analyzeMapPanelConnections(frame, width, height, [marker], { teamHue: 220 });
+  assert.equal(connections.length, 1);
+  assert.equal(connections[0].panel, 'right');
+  assert.equal(connections[0].target, 'marker');
+  assert.equal(connections[0].source, 'observed-teammate-panel-connector');
 });
 
 test('stores a selected teammate cursor as observation without inventing a facing prediction', () => {

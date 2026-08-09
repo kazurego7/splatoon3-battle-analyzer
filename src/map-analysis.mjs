@@ -312,6 +312,149 @@ export function detectMapAllies(frame, width, height, teamColor = estimateMapTea
   return selected.slice(0, 6);
 }
 
+const teammatePanelAnchors = {
+  top: [480, 84],
+  left: [272, 273],
+  right: [688, 273],
+};
+
+function isConnectorPixel(frame, width, x, y, teamHue) {
+  if (x < 0 || y < 0 || x >= width || y >= frame.length / width / 3) return null;
+  const [r, g, b] = rgbAt(frame, width, x, y);
+  const maximum = Math.max(r, g, b);
+  const minimum = Math.min(r, g, b);
+  const white = minimum > 135 && maximum - minimum < 100;
+  const pink = r >= 165 && b >= 125 && r >= g + 28 && b >= g + 12 && Math.abs(r - b) <= 100;
+  const hue = pixelHue(frame, width, x, y);
+  const team = hue != null && teamHue != null && hueDistance(hue, teamHue) <= 45;
+  // Team ink often forms a continuous line between a panel and an unrelated
+  // icon. Only the bright dotted UI stroke is connector evidence; team color
+  // is retained as supporting metadata but must not create a hit by itself.
+  return { any: white || pink, white, pink, team };
+}
+
+function connectorLineEvidence(frame, width, height, anchor, marker, teamHue) {
+  const scaleX = width / 960;
+  const scaleY = height / 540;
+  const startX = anchor[0] * scaleX;
+  const startY = anchor[1] * scaleY;
+  const endX = marker.screenX;
+  const endY = marker.screenY;
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  const length = Math.hypot(deltaX, deltaY);
+  if (length < 70 * Math.min(scaleX, scaleY)) return null;
+  const normalX = -deltaY / length;
+  const normalY = deltaX / length;
+  const sampleStep = 2 * Math.min(scaleX, scaleY);
+  const halfWidth = Math.max(2, Math.round(3 * Math.min(scaleX, scaleY)));
+  let hitSteps = 0;
+  let whitePixels = 0;
+  let pinkPixels = 0;
+  let teamPixels = 0;
+  let pixels = 0;
+  let runs = 0;
+  let previousHit = false;
+  let steps = 0;
+  let nearMarkerHits = 0;
+  let nearMarkerSteps = 0;
+  for (let distance = 24 * Math.min(scaleX, scaleY); distance <= length - 20 * Math.min(scaleX, scaleY); distance += sampleStep) {
+    const ratio = distance / length;
+    const centerX = startX + deltaX * ratio;
+    const centerY = startY + deltaY * ratio;
+    let hit = false;
+    for (let offset = -halfWidth; offset <= halfWidth; offset += 1) {
+      const evidence = isConnectorPixel(frame, width, Math.round(centerX + normalX * offset), Math.round(centerY + normalY * offset), teamHue);
+      if (!evidence) continue;
+      pixels += 1;
+      if (evidence.white) whitePixels += 1;
+      if (evidence.pink) pinkPixels += 1;
+      if (evidence.team) teamPixels += 1;
+      if (evidence.any) hit = true;
+    }
+    if (hit && !previousHit) runs += 1;
+    previousHit = hit;
+    if (hit) hitSteps += 1;
+    steps += 1;
+    const remaining = length - distance;
+    if (remaining >= 24 * Math.min(scaleX, scaleY) && remaining <= 60 * Math.min(scaleX, scaleY)) {
+      nearMarkerSteps += 1;
+      if (hit) nearMarkerHits += 1;
+    }
+  }
+  const hitRatio = hitSteps / Math.max(1, steps);
+  const nearMarkerRatio = nearMarkerHits / Math.max(1, nearMarkerSteps);
+  const whiteRatio = whitePixels / Math.max(1, pixels);
+  const pinkRatio = pinkPixels / Math.max(1, pixels);
+  const teamRatio = teamPixels / Math.max(1, pixels);
+  const staticIconPenalty = (marker.evidence?.innerWhiteRatio || 0) * 0.15;
+  const score = nearMarkerRatio * 0.55 + hitRatio * 0.2 + Math.min(1, runs / 10) * 0.08
+    + whiteRatio * 0.08 + pinkRatio * 0.05 + teamRatio * 0.04 - staticIconPenalty;
+  return {
+    score: Number(clamp(score, 0, 1).toFixed(3)),
+    hitRatio: Number(hitRatio.toFixed(3)),
+    nearMarkerRatio: Number(nearMarkerRatio.toFixed(3)),
+    whiteRatio: Number(whiteRatio.toFixed(3)),
+    pinkRatio: Number(pinkRatio.toFixed(3)),
+    teamRatio: Number(teamRatio.toFixed(3)),
+    runs,
+  };
+}
+
+export function analyzeMapPanelConnections(frame, width, height, markers, {
+  cursor = null,
+  selectedPanel = null,
+  teamHue = null,
+} = {}) {
+  const connections = [];
+  const unavailableMarkers = new Set();
+  const cursorConnectedPanel = selectedPanel && cursor ? selectedPanel : null;
+  if (selectedPanel && cursor) {
+    connections.push({
+      panel: selectedPanel,
+      target: 'cursor',
+      screenX: cursor.screenX,
+      screenY: cursor.screenY,
+      confidence: cursor.confidence,
+      source: 'observed-selected-teammate-cursor',
+    });
+    const covered = markers
+      .map((marker, index) => ({ index, distance: Math.hypot(marker.screenX - cursor.screenX, marker.screenY - cursor.screenY) }))
+      .filter(item => item.distance <= 38 * Math.min(width / 960, height / 540))
+      .sort((left, right) => left.distance - right.distance)[0];
+    if (covered) unavailableMarkers.add(covered.index);
+  }
+
+  const scored = [];
+  for (const [panel, anchor] of Object.entries(teammatePanelAnchors)) {
+    if (panel === cursorConnectedPanel) continue;
+    for (const [markerIndex, marker] of markers.entries()) {
+      if (unavailableMarkers.has(markerIndex)) continue;
+      const evidence = connectorLineEvidence(frame, width, height, anchor, marker, teamHue);
+      if (!evidence || evidence.nearMarkerRatio < 0.42 || evidence.score < 0.34) continue;
+      scored.push({ panel, markerIndex, marker, evidence });
+    }
+  }
+  scored.sort((left, right) => right.evidence.score - left.evidence.score);
+  const usedPanels = new Set(cursorConnectedPanel ? [cursorConnectedPanel] : []);
+  for (const candidate of scored) {
+    if (usedPanels.has(candidate.panel) || unavailableMarkers.has(candidate.markerIndex)) continue;
+    usedPanels.add(candidate.panel);
+    unavailableMarkers.add(candidate.markerIndex);
+    connections.push({
+      panel: candidate.panel,
+      target: 'marker',
+      markerIndex: candidate.markerIndex,
+      screenX: candidate.marker.screenX,
+      screenY: candidate.marker.screenY,
+      confidence: Number(clamp(0.45 + candidate.evidence.score * 0.5, 0.5, 0.94).toFixed(3)),
+      source: 'observed-teammate-panel-connector',
+      evidence: candidate.evidence,
+    });
+  }
+  return connections;
+}
+
 export function detectMapCursor(frame, width, height) {
   let best = null;
   const left = Math.round(width * 0.26);
@@ -451,6 +594,19 @@ export function analyzeMapCandidate(frame, width, height, time) {
     candidate.teamColor = estimateMapTeamColor(frame, width, height);
     candidate.cursor = detectMapCursor(frame, width, height);
     candidate.allies = detectMapAllies(frame, width, height, candidate.teamColor);
+    candidate.panelConnections = analyzeMapPanelConnections(frame, width, height, candidate.allies, {
+      cursor: candidate.cursor,
+      selectedPanel: mapUi.selectedPlayerPanel.selected,
+      teamHue: candidate.teamColor?.hue,
+    });
+    for (const connection of candidate.panelConnections.filter(item => item.target === 'marker')) {
+      candidate.allies[connection.markerIndex].panelConnection = {
+        panel: connection.panel,
+        confidence: connection.confidence,
+        source: connection.source,
+        evidence: connection.evidence,
+      };
+    }
   }
   return candidate;
 }
@@ -575,18 +731,27 @@ function mapRuns(samples) {
 export function detectAllyTracks(samples) {
   const episodes = mapRuns(samples).flatMap(run => {
     const usable = run.filter(sample => sample.neutralRatio >= 0.36
-      && ((sample.allies?.length > 0 && sample.allies.length <= 4)
+      && ((sample.allies?.some(marker => marker.panelConnection))
         || (sample.mapUi?.selectedPlayerPanel?.selected && sample.cursor)));
     if (!usable.length) return [];
-    const sample = [...usable].sort((left, right) => Math.min(4, right.allies?.length || 0) - Math.min(4, left.allies?.length || 0) || left.time - right.time)[0];
-    const markers = (sample.allies?.length <= 4 ? sample.allies : []).map(marker => ({
+    const sample = [...usable].sort((left, right) => (right.allies?.filter(marker => marker.panelConnection).length || 0)
+      - (left.allies?.filter(marker => marker.panelConnection).length || 0) || left.time - right.time)[0];
+    const markers = (sample.allies || []).filter(marker => marker.panelConnection).map(marker => ({
       time: sample.time,
       x: marker.x,
       y: marker.y,
-      directionDegrees: marker.directionDegrees,
-      confidence: marker.confidence,
-      source: 'observed-map-ally-marker',
-      evidence: { ...marker.evidence, screen: { x: marker.screenX, y: marker.screenY }, observedUntil: run.at(-1).time },
+      // The small arrow around a teammate is the D-pad assignment, not the
+      // direction that teammate is moving. Do not invent a route from it.
+      directionDegrees: null,
+      confidence: Number(Math.min(marker.confidence, marker.panelConnection.confidence).toFixed(3)),
+      source: 'observed-map-panel-connected-ally',
+      evidence: {
+        ...marker.evidence,
+        panelConnection: marker.panelConnection,
+        dpadPointerDegrees: marker.directionDegrees,
+        screen: { x: marker.screenX, y: marker.screenY },
+        observedUntil: run.at(-1).time,
+      },
     }));
     if (sample.mapUi?.selectedPlayerPanel?.selected && sample.cursor) markers.push({
       time: sample.time,

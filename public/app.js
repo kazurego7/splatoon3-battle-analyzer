@@ -67,7 +67,6 @@ function renderChart() {
   elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;const difference=Math.max(-4,Math.min(4,item.difference||0)),strength=difference===0?.035:(.1+Math.abs(difference)*.11)*(item.source==='held'?.55:1);elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.countTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.countBottom-chartBounds.countTop,'fill-opacity':Number(strength.toFixed(3)),class:`chart-advantage ${difference>0?'positive':difference<0?'negative':'even'}`}));});
   elements.chartGrid.innerHTML='';
   [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
-  addChartLabel('カウント（背景＝人数差）',chartBounds.left,18,'start','chart-text axis-title');
   for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle');}
   elements.chartCountSeries.replaceChildren(svgElement('path',{d:stepPath(game,'teamCount',gameY),class:'chart-count-team'}),svgElement('path',{d:stepPath(game,'enemyCount',gameY),class:'chart-count-enemy'}));
   elements.chartSeries.innerHTML='';

@@ -371,14 +371,14 @@ export class Pipeline {
       let mapCandidates;
       try {
         const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
-        if (cached.version !== 7 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
+        if (cached.version !== 8 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
         mapCandidates = cached.samples;
       } catch {
         mapCandidates = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
           interval: 1,
           onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
         });
-        await fs.writeFile(mapCache, `${JSON.stringify({ version: 7, samples: mapCandidates })}\n`);
+        await fs.writeFile(mapCache, `${JSON.stringify({ version: 8, samples: mapCandidates })}\n`);
       }
       const observedMap = selectObservedMapFrame(mapCandidates, deaths);
       const spatialObservations = detectSpatialObservations(mapCandidates);
@@ -419,7 +419,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 17,
+        version: 18,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
