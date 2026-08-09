@@ -43,9 +43,59 @@ for (let y = -30; y <= 30; y += 2) {
 }
 for (let y = -6; y <= 6; y += 2) for (let x = -6; x <= 6; x += 2) allyPointerOffsets.push([x, y]);
 
-function isAllyBlue(frame, width, x, y) {
+function pixelHue(frame, width, x, y) {
   const [r, g, b] = rgbAt(frame, width, x, y);
-  return b > 65 && b > r * 1.22 && b > g * 1.12;
+  const maximum = Math.max(r, g, b);
+  const minimum = Math.min(r, g, b);
+  const delta = maximum - minimum;
+  if (maximum < 65 || delta / maximum < 0.28) return null;
+  let hue;
+  if (maximum === r) hue = ((g - b) / delta) % 6;
+  else if (maximum === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  return ((hue * 60) % 360 + 360) % 360;
+}
+
+function hueDistance(left, right) {
+  const distance = Math.abs(left - right);
+  return Math.min(distance, 360 - distance);
+}
+
+function isTeamColor(frame, width, x, y, teamHue) {
+  const hue = pixelHue(frame, width, x, y);
+  return hue != null && hueDistance(hue, teamHue) <= 45;
+}
+
+export function estimateMapTeamColor(frame, width, height) {
+  const bins = Array(24).fill(0);
+  const hues = [];
+  const right = Math.round(width * 0.27);
+  const top = Math.round(height * 0.82);
+  for (let y = top; y < height; y += 1) {
+    for (let x = 0; x < right; x += 1) {
+      const hue = pixelHue(frame, width, x, y);
+      if (hue == null) continue;
+      bins[Math.floor(hue / 15) % bins.length] += 1;
+      hues.push(hue);
+    }
+  }
+  if (hues.length < 80) return null;
+  const scores = bins.map((count, index) => count
+    + bins[(index + bins.length - 1) % bins.length]
+    + bins[(index + 1) % bins.length]);
+  const peakIndex = scores.indexOf(Math.max(...scores));
+  const peakHue = peakIndex * 15 + 7.5;
+  const selected = hues.filter(hue => hueDistance(hue, peakHue) <= 30);
+  if (selected.length < 80) return null;
+  const cosine = selected.reduce((sum, hue) => sum + Math.cos(hue * Math.PI / 180), 0);
+  const sine = selected.reduce((sum, hue) => sum + Math.sin(hue * Math.PI / 180), 0);
+  const hue = (Math.atan2(sine, cosine) * 180 / Math.PI + 360) % 360;
+  return {
+    hue: Number(hue.toFixed(1)),
+    confidence: Number(clamp(selected.length / hues.length, 0, 1).toFixed(3)),
+    sampleCount: selected.length,
+    source: 'bottom-left-self-panel-color',
+  };
 }
 
 function isMarkerWhite(frame, width, x, y) {
@@ -53,6 +103,123 @@ function isMarkerWhite(frame, width, x, y) {
   const maximum = Math.max(r, g, b);
   const minimum = Math.min(r, g, b);
   return minimum > 145 && maximum - minimum < 75;
+}
+
+export function analyzeMapCloseButton(frame, width, height) {
+  const scaleX = width / 960;
+  const scaleY = height / 540;
+  const left = Math.round(20 * scaleX);
+  const right = Math.round(86 * scaleX);
+  const top = Math.round(20 * scaleY);
+  const bottom = Math.round(82 * scaleY);
+  const regionWidth = right - left;
+  const regionHeight = bottom - top;
+  const mask = new Uint8Array(regionWidth * regionHeight);
+  for (let y = 0; y < regionHeight; y += 1) {
+    for (let x = 0; x < regionWidth; x += 1) {
+      const [r, g, b] = rgbAt(frame, width, left + x, top + y);
+      const maximum = Math.max(r, g, b);
+      const minimum = Math.min(r, g, b);
+      if (minimum > 135 && maximum - minimum < 90) mask[y * regionWidth + x] = 1;
+    }
+  }
+  const visited = new Uint8Array(mask.length);
+  const components = [];
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index] || visited[index]) continue;
+    const queue = [index];
+    visited[index] = 1;
+    let area = 0;
+    let minimumX = regionWidth;
+    let maximumX = 0;
+    let minimumY = regionHeight;
+    let maximumY = 0;
+    for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+      const current = queue[queueIndex];
+      const x = current % regionWidth;
+      const y = Math.floor(current / regionWidth);
+      area += 1;
+      minimumX = Math.min(minimumX, x);
+      maximumX = Math.max(maximumX, x);
+      minimumY = Math.min(minimumY, y);
+      maximumY = Math.max(maximumY, y);
+      for (const [offsetX, offsetY] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nextX = x + offsetX;
+        const nextY = y + offsetY;
+        if (nextX < 0 || nextX >= regionWidth || nextY < 0 || nextY >= regionHeight) continue;
+        const next = nextY * regionWidth + nextX;
+        if (mask[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+    components.push({
+      area,
+      x: left + minimumX,
+      y: top + minimumY,
+      width: maximumX - minimumX + 1,
+      height: maximumY - minimumY + 1,
+    });
+  }
+  const expectedX = 55 * scaleX;
+  const expectedY = 49 * scaleY;
+  const match = components
+    .filter(component => component.area >= 180 * scaleX * scaleY
+      && component.width >= 20 * scaleX && component.width <= 34 * scaleX
+      && component.height >= 20 * scaleY && component.height <= 34 * scaleY)
+    .map(component => ({
+      ...component,
+      centerX: component.x + component.width / 2,
+      centerY: component.y + component.height / 2,
+    }))
+    .sort((leftComponent, rightComponent) => Math.hypot(leftComponent.centerX - expectedX, leftComponent.centerY - expectedY)
+      - Math.hypot(rightComponent.centerX - expectedX, rightComponent.centerY - expectedY))[0];
+  const positionError = match ? Math.hypot(match.centerX - expectedX, match.centerY - expectedY) : Number.POSITIVE_INFINITY;
+  return {
+    visible: positionError <= 4 * Math.max(scaleX, scaleY),
+    positionError: Number.isFinite(positionError) ? Number(positionError.toFixed(2)) : null,
+    component: match || null,
+  };
+}
+
+function analyzeSelectedPlayerPanel(frame, width, height) {
+  const scaleX = width / 960;
+  const scaleY = height / 540;
+  const panelBorders = {
+    top: [[350, 15, 610, 27], [350, 70, 610, 84], [350, 15, 366, 84], [594, 15, 610, 84]],
+    left: [[10, 238, 270, 250], [10, 296, 270, 308], [10, 238, 24, 308], [256, 238, 272, 308]],
+    right: [[688, 238, 950, 250], [688, 296, 950, 308], [688, 238, 704, 308], [936, 238, 952, 308]],
+  };
+  const scoreRegion = ([left, top, right, bottom]) => {
+    let pink = 0;
+    let pixels = 0;
+    for (let y = Math.round(top * scaleY); y < Math.round(bottom * scaleY); y += 1) {
+      for (let x = Math.round(left * scaleX); x < Math.round(right * scaleX); x += 1) {
+        if (isCursorPink(frame, width, x, y)) pink += 1;
+        pixels += 1;
+      }
+    }
+    return pink / Math.max(1, pixels);
+  };
+  const panels = Object.entries(panelBorders).map(([panel, regions]) => {
+    const edges = regions.map(scoreRegion);
+    return {
+      panel,
+      score: edges.reduce((sum, value) => sum + value, 0) / edges.length,
+      supportingEdges: edges.filter(value => value >= 0.07).length,
+      edges: edges.map(value => Number(value.toFixed(3))),
+    };
+  }).sort((left, right) => right.score - left.score);
+  const selected = panels[0];
+  return {
+    selected: selected.score >= 0.08 && selected.supportingEdges >= 3 ? selected.panel : null,
+    confidence: Number(clamp((selected.score - 0.06) * 5, 0, 0.95).toFixed(3)),
+    panels: Object.fromEntries(panels.map(panel => [panel.panel, {
+      score: Number(panel.score.toFixed(3)),
+      supportingEdges: panel.supportingEdges,
+    }])),
+  };
 }
 
 function mapCoordinates(width, height, screenX, screenY) {
@@ -65,10 +232,11 @@ function mapCoordinates(width, height, screenX, screenY) {
   };
 }
 
-export function detectMapAllies(frame, width, height) {
+export function detectMapAllies(frame, width, height, teamColor = estimateMapTeamColor(frame, width, height)) {
+  if (teamColor?.hue == null) return [];
   const candidates = [];
-  const left = Math.round(width * (250 / 960));
-  const right = Math.round(width * (710 / 960));
+  const left = Math.round(width * (280 / 960));
+  const right = Math.round(width * (680 / 960));
   const top = Math.round(height * (150 / 540));
   const bottom = Math.round(height * (460 / 540));
   for (let y = top; y < bottom; y += 3) {
@@ -79,27 +247,27 @@ export function detectMapAllies(frame, width, height) {
       let innerDark = 0;
       let innerWhite = 0;
       for (const [offsetX, offsetY] of allyRingOffsets) {
-        if (isAllyBlue(frame, width, x + offsetX, y + offsetY)) ringBlue += 1;
+        if (isTeamColor(frame, width, x + offsetX, y + offsetY, teamColor.hue)) ringBlue += 1;
       }
       const ringRatio = ringBlue / allyRingOffsets.length;
-      if (ringRatio < 0.6) continue;
+      if (ringRatio < 0.5) continue;
       for (const [offsetX, offsetY] of allyOuterOffsets) {
-        if (isAllyBlue(frame, width, x + offsetX, y + offsetY)) outerBlue += 1;
+        if (isTeamColor(frame, width, x + offsetX, y + offsetY, teamColor.hue)) outerBlue += 1;
       }
       const outerRatio = outerBlue / allyOuterOffsets.length;
       const ringContrast = ringRatio - outerRatio;
-      if (ringContrast < 0.23) continue;
+      if (ringContrast < 0.18) continue;
       for (const [offsetX, offsetY] of allyInnerOffsets) {
         const pixelX = x + offsetX;
         const pixelY = y + offsetY;
-        if (isAllyBlue(frame, width, pixelX, pixelY)) innerBlue += 1;
+        if (isTeamColor(frame, width, pixelX, pixelY, teamColor.hue)) innerBlue += 1;
         if (isMarkerWhite(frame, width, pixelX, pixelY)) innerWhite += 1;
         if (Math.max(...rgbAt(frame, width, pixelX, pixelY)) < 65) innerDark += 1;
       }
       const innerBlueRatio = innerBlue / allyInnerOffsets.length;
       const innerWhiteRatio = innerWhite / allyInnerOffsets.length;
       const innerDarkRatio = innerDark / allyInnerOffsets.length;
-      if (innerBlueRatio < 0.48 || innerWhiteRatio > 0.27 || innerDarkRatio < 0.025 || innerDarkRatio > 0.24) continue;
+      if (innerBlueRatio < 0.42 || innerWhiteRatio > 0.28 || innerDarkRatio < 0.02 || innerDarkRatio > 0.28) continue;
 
       let pointerRatio = 0;
       let directionDegrees = 0;
@@ -127,9 +295,11 @@ export function detectMapAllies(frame, width, height) {
         confidence: Number(clamp(0.38 + score * 0.62, 0.42, 0.9).toFixed(3)),
         evidence: {
           ringContrast: Number(ringContrast.toFixed(3)),
-          innerBlueRatio: Number(innerBlueRatio.toFixed(3)),
+          innerTeamRatio: Number(innerBlueRatio.toFixed(3)),
           innerWhiteRatio: Number(innerWhiteRatio.toFixed(3)),
           pointerRatio: Number(pointerRatio.toFixed(3)),
+          teamHue: teamColor.hue,
+          teamColorConfidence: teamColor.confidence,
         },
       });
     }
@@ -188,6 +358,8 @@ export function detectMapCursor(frame, width, height) {
 }
 
 function analyzeMapUiPanel(frame, width, height) {
+  const closeButton = analyzeMapCloseButton(frame, width, height);
+  const selectedPlayerPanel = analyzeSelectedPlayerPanel(frame, width, height);
   const left = Math.round(width * (750 / 960));
   const right = Math.round(width * (940 / 960));
   const top = Math.round(height * (20 / 540));
@@ -236,7 +408,9 @@ function analyzeMapUiPanel(frame, width, height) {
     edgeRatio: Number(edgeRatio.toFixed(4)),
     leftPanel: { darkRatio: Number(leftPanel.darkRatio.toFixed(4)), edgeRatio: Number(leftPanel.edgeRatio.toFixed(4)) },
     rightPanel: { darkRatio: Number(rightPanel.darkRatio.toFixed(4)), edgeRatio: Number(rightPanel.edgeRatio.toFixed(4)) },
-    visible: darkRatio >= 0.25 && edgeRatio >= 0.115 && sidePanelsVisible,
+    closeButton,
+    selectedPlayerPanel,
+    visible: closeButton.visible && darkRatio >= 0.25 && edgeRatio >= 0.115 && sidePanelsVisible,
   };
 }
 
@@ -274,8 +448,9 @@ export function analyzeMapCandidate(frame, width, height, time) {
     mapUi,
   };
   if (mapUi.visible && candidate.neutralRatio >= 0.36 && candidate.score >= 0.32) {
+    candidate.teamColor = estimateMapTeamColor(frame, width, height);
     candidate.cursor = detectMapCursor(frame, width, height);
-    candidate.allies = detectMapAllies(frame, width, height);
+    candidate.allies = detectMapAllies(frame, width, height, candidate.teamColor);
   }
   return candidate;
 }
@@ -301,42 +476,25 @@ export function detectSpatialObservations(samples) {
     else current.push(sample);
   }
   return runs.flatMap(run => {
-    const peakNeutral = Math.max(...run.map(sample => sample.neutralRatio));
-    if (peakNeutral < 0.38) return [];
     const initial = run
-      .filter(sample => sample.neutralRatio >= Math.max(0.36, peakNeutral - 0.05)
-        && sample.score >= 0.32 && sample.cursor?.confidence >= 0.42)
-      .map(sample => {
-        const nearestAllyDistance = (sample.allies || []).reduce(
-          (nearest, item) => Math.min(nearest, Math.hypot(item.screenX - sample.cursor.screenX, item.screenY - sample.cursor.screenY)),
-          Number.POSITIVE_INFINITY,
-        );
-        return nearestAllyDistance <= 18 ? null : { sample, nearestAllyDistance };
-      })
-      .filter(Boolean)
-      .sort((left, right) => right.sample.score - left.sample.score || left.sample.time - right.sample.time)[0];
+      .filter(sample => sample.neutralRatio >= 0.36 && sample.score >= 0.32 && sample.selfMarker?.confidence >= 0.5)
+      .sort((left, right) => right.selfMarker.confidence - left.selfMarker.confidence || left.time - right.time)[0];
     if (!initial) return [];
-    const { sample, nearestAllyDistance } = initial;
-    const confidence = Math.min(0.78, sample.cursor.confidence * 0.72 + Math.min(0.14, run.length * 0.03));
+    const sample = initial;
     return {
       id: '',
       time: sample.time,
-      x: sample.cursor.x,
-      y: sample.cursor.y,
+      x: sample.selfMarker.x,
+      y: sample.selfMarker.y,
+      directionDegrees: sample.selfMarker.directionDegrees,
       team: 'self',
-      source: 'observed-map-self-ring',
-      confidence: Number(confidence.toFixed(3)),
+      source: 'observed-map-self-marker',
+      confidence: sample.selfMarker.confidence,
       evidence: {
         mapScore: sample.score,
-        cursorScore: sample.cursor.score,
-        ringRatio: sample.cursor.ringRatio,
-        innerRatio: sample.cursor.innerRatio,
-        outerRatio: sample.cursor.outerRatio,
-        ringContrast: sample.cursor.ringContrast,
-        nearestAllyDistance: Number.isFinite(nearestAllyDistance) ? Number(nearestAllyDistance.toFixed(2)) : null,
-        screen: { x: sample.cursor.screenX, y: sample.cursor.screenY },
+        ...sample.selfMarker.evidence,
+        screen: { x: sample.selfMarker.screenX, y: sample.selfMarker.screenY },
         observedUntil: run.at(-1).time,
-        limitation: 'pink-self-ring-rejected-when-overlapping-teammate-super-jump-target',
       },
     };
   }).map((observation, index) => ({ ...observation, id: `self-map-${index + 1}` }));
@@ -416,10 +574,12 @@ function mapRuns(samples) {
 
 export function detectAllyTracks(samples) {
   const episodes = mapRuns(samples).flatMap(run => {
-    const usable = run.filter(sample => sample.neutralRatio >= 0.36 && sample.allies?.length);
+    const usable = run.filter(sample => sample.neutralRatio >= 0.36
+      && ((sample.allies?.length > 0 && sample.allies.length <= 4)
+        || (sample.mapUi?.selectedPlayerPanel?.selected && sample.cursor)));
     if (!usable.length) return [];
-    const sample = [...usable].sort((left, right) => right.allies.length - left.allies.length || left.time - right.time)[0];
-    return sample.allies.map(marker => ({
+    const sample = [...usable].sort((left, right) => Math.min(4, right.allies?.length || 0) - Math.min(4, left.allies?.length || 0) || left.time - right.time)[0];
+    const markers = (sample.allies?.length <= 4 ? sample.allies : []).map(marker => ({
       time: sample.time,
       x: marker.x,
       y: marker.y,
@@ -428,6 +588,21 @@ export function detectAllyTracks(samples) {
       source: 'observed-map-ally-marker',
       evidence: { ...marker.evidence, screen: { x: marker.screenX, y: marker.screenY }, observedUntil: run.at(-1).time },
     }));
+    if (sample.mapUi?.selectedPlayerPanel?.selected && sample.cursor) markers.push({
+      time: sample.time,
+      x: sample.cursor.x,
+      y: sample.cursor.y,
+      directionDegrees: null,
+      confidence: Number(Math.min(sample.cursor.confidence, sample.mapUi.selectedPlayerPanel.confidence).toFixed(3)),
+      source: 'observed-map-selected-ally-cursor',
+      evidence: {
+        selectedPanel: sample.mapUi.selectedPlayerPanel.selected,
+        cursorScore: sample.cursor.score,
+        screen: { x: sample.cursor.screenX, y: sample.cursor.screenY },
+        observedUntil: run.at(-1).time,
+      },
+    });
+    return markers;
   });
 
   const stationaryClusters = [];
@@ -443,14 +618,17 @@ export function detectAllyTracks(samples) {
   }
   const staticIcons = stationaryClusters.filter(cluster => {
     const distinctEpisodes = new Set(cluster.observations.map(item => item.time)).size;
-    const averageWhite = cluster.observations.reduce((sum, item) => sum + item.evidence.innerWhiteRatio, 0) / cluster.observations.length;
+    const averageWhite = cluster.observations.reduce((sum, item) => sum + (item.evidence.innerWhiteRatio ?? 0), 0) / cluster.observations.length;
     return distinctEpisodes >= 3 && averageWhite >= 0.15;
   });
   const observations = episodes.filter(observation => !staticIcons.some(icon => Math.hypot(icon.x - observation.x, icon.y - observation.y) <= 22));
 
   const tracks = [];
   for (const time of [...new Set(observations.map(item => item.time))].sort((left, right) => left - right)) {
-    const atTime = observations.filter(item => item.time === time).sort((left, right) => right.confidence - left.confidence).slice(0, 3);
+    const atTime = observations.filter(item => item.time === time)
+      .sort((left, right) => Number(right.source === 'observed-map-selected-ally-cursor')
+        - Number(left.source === 'observed-map-selected-ally-cursor') || right.confidence - left.confidence)
+      .slice(0, 3);
     const availableTracks = new Set(tracks.map((_, index) => index));
     for (const observation of atTime) {
       const match = [...availableTracks]
@@ -473,6 +651,7 @@ export function buildEntityPredictions(tracks, { seconds = 6, distance = 72 } = 
   for (const track of tracks) {
     for (let index = 0; index < track.frames.length; index += 1) {
       const observation = track.frames[index];
+      if (observation.directionDegrees == null) continue;
       const nextObservation = track.frames[index + 1];
       const duration = Math.min(seconds, nextObservation ? Math.max(0, nextObservation.time - observation.time - 0.5) : seconds);
       if (duration < 1) continue;

@@ -371,14 +371,14 @@ export class Pipeline {
       let mapCandidates;
       try {
         const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
-        if (cached.version !== 6 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
+        if (cached.version !== 7 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
         mapCandidates = cached.samples;
       } catch {
         mapCandidates = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
           interval: 1,
           onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
         });
-        await fs.writeFile(mapCache, `${JSON.stringify({ version: 6, samples: mapCandidates })}\n`);
+        await fs.writeFile(mapCache, `${JSON.stringify({ version: 7, samples: mapCandidates })}\n`);
       }
       const observedMap = selectObservedMapFrame(mapCandidates, deaths);
       const spatialObservations = detectSpatialObservations(mapCandidates);
@@ -419,7 +419,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 16,
+        version: 17,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -458,7 +458,7 @@ export class Pipeline {
           deaths: respawnRuns.length ? 'automatic-hud-and-respawn-timing-fusion' : identityConfirmed ? 'automatic-self-hud' : 'unavailable-no-death-evidence',
           playerWeapon: weaponEvidence?.status !== 'candidate-only' ? weaponEvidence.status : 'unavailable-low-confidence-result-icon-match',
           playerCounts: 'automatic-battle-hud',
-          playerRoute: playerRoute.length ? 'automatic-non-overlapping-self-ring-and-inferred-map-route' : 'unavailable-no-unselected-self-ring',
+          playerRoute: playerRoute.length ? 'automatic-observed-self-marker-and-inferred-map-route' : 'unavailable-no-grounded-self-marker',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
           enemyRoutes: enemySightPredictions.length ? 'predicted-from-video-candidate-and-self-route-heading' : 'unavailable-no-overlapping-video-candidate-and-self-route',

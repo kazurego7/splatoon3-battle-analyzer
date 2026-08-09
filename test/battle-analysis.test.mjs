@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, analyzeMapCloseButton, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
 import { classifyWeaponFeature, weaponCatalogMetadata, weaponReferenceFeature } from '../src/weapon-analysis.mjs';
@@ -115,7 +115,25 @@ test('selects an observed map frame inside a death review window', () => {
   assert.equal(selected.source, 'observed-map-screen');
 });
 
-test('uses a separated pink map ring as self position and rejects teammate selection overlap', () => {
+test('distinguishes the map close button from the higher battle HUD cross', () => {
+  const width = 960;
+  const height = 540;
+  const drawCross = top => {
+    const frame = Buffer.alloc(width * height * 3, 20);
+    for (let y = 0; y < 26; y += 1) {
+      for (let x = 0; x < 26; x += 1) {
+        if (Math.min(Math.abs(y - x), Math.abs(y + x - 25)) > 4) continue;
+        const at = ((top + y) * width + 42 + x) * 3;
+        frame[at] = 230; frame[at + 1] = 230; frame[at + 2] = 230;
+      }
+    }
+    return frame;
+  };
+  assert.equal(analyzeMapCloseButton(drawCross(36), width, height).visible, true);
+  assert.equal(analyzeMapCloseButton(drawCross(29), width, height).visible, false);
+});
+
+test('keeps the map cursor separate from a grounded self marker', () => {
   const width = 960;
   const height = 540;
   const frame = Buffer.alloc(width * height * 3, 110);
@@ -145,16 +163,16 @@ test('uses a separated pink map ring as self position and rejects teammate selec
   }
   assert.equal(detectMapCursor(broadInk, width, height), null);
 
-  const allyMarker = { ...cursor, screenX: cursor.screenX + 60, screenY: cursor.screenY + 40, x: cursor.x + 120, y: cursor.y + 80, directionDegrees: 315, confidence: 0.74 };
-  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor, allies: [allyMarker] };
+  const selfMarker = { screenX: cursor.screenX + 60, screenY: cursor.screenY + 40, x: cursor.x + 120, y: cursor.y + 80, directionDegrees: 315, confidence: 0.74, evidence: { markerShape: 'self' } };
+  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor, selfMarker };
   const observations = detectSpatialObservations([
     { ...base, time: 12 }, { ...base, time: 13 },
-    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 }, allies: [{ ...allyMarker, x: allyMarker.x + 80, y: allyMarker.y - 20 }] },
+    { ...base, time: 40, selfMarker: { ...selfMarker, x: selfMarker.x + 80, y: selfMarker.y - 20 } },
   ]);
   assert.equal(observations.length, 2);
-  assert.equal(observations[0].source, 'observed-map-self-ring');
-  assert.equal(observations[0].x, cursor.x);
-  assert.equal(detectSpatialObservations([{ ...base, time: 50, allies: [{ ...allyMarker, screenX: cursor.screenX + 6, screenY: cursor.screenY + 4 }] }]).length, 0);
+  assert.equal(observations[0].source, 'observed-map-self-marker');
+  assert.equal(observations[0].x, selfMarker.x);
+  assert.equal(detectSpatialObservations([{ ...base, time: 50, selfMarker: null }]).length, 0);
 });
 
 test('separates observed route anchors, inferred gaps, and short predictions', () => {
@@ -172,7 +190,7 @@ test('separates observed route anchors, inferred gaps, and short predictions', (
   assert.ok(prediction.frames.at(-1).confidence < prediction.frames[0].confidence);
 });
 
-test('detects an ally marker from its blue ring, dark weapon shape, and white direction pointer', () => {
+test('detects ally markers using the self-panel team color and a white direction pointer', () => {
   const width = 960;
   const height = 540;
   const frame = Buffer.alloc(width * height * 3, 105);
@@ -191,11 +209,17 @@ test('detects an ally marker from its blue ring, dark weapon shape, and white di
   for (let y = center.y - 5; y <= center.y + 5; y += 1) {
     for (let x = center.x + 24; x <= center.x + 34; x += 1) paint(x, y, [225, 225, 225]);
   }
-  const allies = detectMapAllies(frame, width, height);
+  const allies = detectMapAllies(frame, width, height, { hue: 236, confidence: 1 });
   assert.equal(allies.length, 1);
   assert.ok(Math.abs(allies[0].screenX - center.x) <= 3);
   assert.ok(Math.abs(allies[0].screenY - center.y) <= 3);
   assert.equal(allies[0].directionDegrees, 0);
+
+  for (let y = Math.round(height * 0.82); y < height; y += 1) {
+    for (let x = 0; x < Math.round(width * 0.27); x += 1) paint(x, y, [230, 210, 25]);
+  }
+  const teamColor = estimateMapTeamColor(frame, width, height);
+  assert.ok(Math.abs(teamColor.hue - 55) <= 8);
 });
 
 test('removes repeated static map icons and predicts an ally from the observed facing direction', () => {
@@ -213,6 +237,20 @@ test('removes repeated static map icons and predicts an ally from the observed f
   assert.equal(predictions.length, 3);
   assert.equal(predictions[0].team, 'ally');
   assert.ok(predictions[0].frames.at(-1).x > predictions[0].frames[0].x);
+});
+
+test('stores a selected teammate cursor as observation without inventing a facing prediction', () => {
+  const samples = [{
+    time: 20,
+    neutralRatio: 0.45,
+    mapUi: { visible: true, selectedPlayerPanel: { selected: 'left', confidence: 0.8 } },
+    cursor: { x: 420, y: 610, screenX: 438, screenY: 327, score: 0.58, confidence: 0.72 },
+    allies: [],
+  }];
+  const tracks = detectAllyTracks(samples);
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].frames[0].source, 'observed-map-selected-ally-cursor');
+  assert.equal(buildEntityPredictions(tracks).length, 0);
 });
 
 test('represents a grounded enemy hypothesis as an expanding uncertainty zone instead of an observed position', () => {
