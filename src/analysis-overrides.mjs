@@ -4,7 +4,6 @@ const verified = {
   '2026-08-08 15-20-32.mp4': {
     1: {
       resultDeaths: 9,
-      ignoredDeathWindows: [[30, 45]],
       stage: 'タカアシ経済特区',
       rule: 'エリア',
       stageAsset: 'タカアシ経済特区_エリア.webp',

@@ -4,7 +4,7 @@ import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
 import { analyzeMapCandidate, selectObservedMapFrame } from '../src/map-analysis.mjs';
-import { applyVerifiedDeathWindows, attachRespawnEvidence } from '../src/analysis-overrides.mjs';
+import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -119,6 +119,12 @@ test('removes only human-verified false death windows', () => {
     applyVerifiedDeathWindows(deaths, { ignoredDeathWindows: [[30, 45]] }).map(death => death.time),
     [95.25, 123.25],
   );
+});
+
+test('does not suppress the verified self death around 00:33', () => {
+  const override = verifiedAnalysis('2026-08-08 15-20-32.mp4', 1);
+  const deaths = [{ time: 33.25, evidence: { detector: 'self-hud-cross' } }];
+  assert.deepEqual(applyVerifiedDeathWindows(deaths, override).map(death => death.time), [33.25]);
 });
 
 test('attaches respawn countdown evidence to the matching HUD death', () => {
