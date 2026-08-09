@@ -31,6 +31,10 @@
   - `hudSlot`: 自軍HUDの左から何番目か（0始まり）
   - `method`: 同じ試合のリザルトを使った `result-row-weapon-match`、または直前試合から引き継いだ `carried-result-weapon-match`
   - `confidence`: リザルトのブキ形状とHUDアイコンの照合確度
+  - `weapon`: リザルトの自分行にあるブキ画像を173種の照合辞書へ比較した結果
+    - `status`: その試合のリザルトから直接識別した `identified-from-result-icon`、録画内の一致で補強した `confirmed-by-recording-consistency`、前試合から引き継いだ `inferred-from-previous-result`、または画面へ出さない `candidate-only`
+    - `name` / `id`: 日本語ブキ名と辞書ID
+    - `candidates`: 上位候補と画像距離。確度不足時にも検証根拠として保持
 - `gameFlow.playerCounts[]`: 1秒ごとの自軍・相手の生存人数と人数差
   - `teamAlive` / `enemyAlive`: 0〜4人の生存人数
   - `difference`: `teamAlive - enemyAlive`
@@ -75,4 +79,4 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン13です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン14です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

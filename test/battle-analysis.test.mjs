@@ -6,6 +6,7 @@ import { findSelfResultRow } from '../src/player-identity.mjs';
 import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
+import { classifyWeaponFeature, weaponCatalogMetadata, weaponReferenceFeature } from '../src/weapon-analysis.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -314,4 +315,14 @@ test('projects a video enemy candidate as an explicitly uncertain map prediction
   assert.ok(predictions[0].confidence <= 0.28);
   assert.equal(predictions[0].evidence.routeHeadingAssumption, true);
   assert.deepEqual(buildEnemySightPredictions(detections, route.slice(0, 5)), []);
+});
+
+test('identifies an exact result weapon template from the bundled catalog', () => {
+  assert.ok(weaponCatalogMetadata.count >= 170);
+  const reference = weaponReferenceFeature('Charger_Light_00');
+  const result = classifyWeaponFeature(reference);
+  assert.equal(result.status, 'identified');
+  assert.equal(result.id, 'Charger_Light_00');
+  assert.equal(result.name, '14式竹筒銃・甲');
+  assert.equal(result.distance, 0);
 });

@@ -11,6 +11,7 @@ import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones,
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
+import { identifyResultWeapon, weaponCatalogMetadata } from './weapon-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -232,6 +233,7 @@ export class Pipeline {
     const thumbnailDir = path.join(THUMBNAIL_ROOT, id);
     await Promise.all([fs.mkdir(analysisDir, { recursive: true }), fs.mkdir(thumbnailDir, { recursive: true })]);
     let previousIdentityResult = null;
+    let previousWeaponEvidence = null;
     for (let index = 0; index < matches.length; index += 1) {
       const match = matches[index];
       const clipPath = path.join(finalClips, match.fileName);
@@ -270,6 +272,31 @@ export class Pipeline {
         ? identifySelfHudSlot(identityReference.frame, identityReference.resultRow, hudIdentityFrame)
         : null;
       if (directIdentityResult) previousIdentityResult = directIdentityResult;
+      const directWeapon = directIdentityResult
+        ? identifyResultWeapon(directIdentityResult.frame, directIdentityResult.resultRow.rowY)
+        : null;
+      let weaponEvidence = null;
+      if (directWeapon) {
+        const consistent = directWeapon.status !== 'identified' && previousWeaponEvidence?.id === directWeapon.id;
+        weaponEvidence = {
+          id: directWeapon.id,
+          name: directWeapon.name,
+          status: directWeapon.status === 'identified' ? 'identified-from-result-icon' : consistent ? 'confirmed-by-recording-consistency' : 'candidate-only',
+          confidence: Number(Math.max(directWeapon.confidence, consistent ? previousWeaponEvidence.confidence * 0.72 : 0).toFixed(3)),
+          source: 'result-icon-template-match',
+          crop: directWeapon.crop,
+          candidates: directWeapon.candidates,
+          catalogVersion: weaponCatalogMetadata.version,
+        };
+        if (weaponEvidence.status !== 'candidate-only') previousWeaponEvidence = weaponEvidence;
+      } else if (previousWeaponEvidence) {
+        weaponEvidence = {
+          ...previousWeaponEvidence,
+          status: 'inferred-from-previous-result',
+          confidence: Number((previousWeaponEvidence.confidence * 0.55).toFixed(3)),
+          source: 'previous-result-icon-template-match',
+        };
+      }
       const identityConfirmed = Boolean(identityMatch && identityMatch.confidence >= 0.05);
       const verifiedMatch = verifiedAnalysis(recording.fileName, match.number);
       const identity = {
@@ -279,6 +306,7 @@ export class Pipeline {
         confidence: identityMatch?.confidence || 0,
         resultTime: directIdentityResult?.time == null ? null : Number((directIdentityResult.time - match.start).toFixed(2)),
         scores: identityMatch?.scores || [],
+        weapon: weaponEvidence,
       };
       const selfHud = identityConfirmed
         ? battleHud.map(sample => ({ time: sample.time, ...sample.team[identityMatch.slot] }))
@@ -391,7 +419,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 13,
+        version: 14,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -428,6 +456,7 @@ export class Pipeline {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
           deaths: respawnRuns.length ? 'automatic-hud-and-respawn-timing-fusion' : identityConfirmed ? 'automatic-self-hud' : 'unavailable-no-death-evidence',
+          playerWeapon: weaponEvidence?.status !== 'candidate-only' ? weaponEvidence.status : 'unavailable-low-confidence-result-icon-match',
           playerCounts: 'automatic-battle-hud',
           playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
