@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, buildPlayerRoute, buildShortPredictions, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 
 function sample(time, state = 'alive') {
@@ -111,6 +111,48 @@ test('selects an observed map frame inside a death review window', () => {
   const selected = selectObservedMapFrame([{ time: 3, neutralRatio: 0.02, edgeRatio: 0.01, score: 0.02 }, map], [{ time: 8 }]);
   assert.equal(selected.time, 12);
   assert.equal(selected.source, 'observed-map-screen');
+});
+
+test('detects a pink map cursor and turns map-open runs into position observations', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 110);
+  const center = { x: 441, y: 342 };
+  for (let y = center.y - 16; y <= center.y + 16; y += 1) {
+    for (let x = center.x - 16; x <= center.x + 16; x += 1) {
+      const distance = Math.hypot(x - center.x, y - center.y);
+      if (distance < 9 || distance > 13) continue;
+      const at = (y * width + x) * 3;
+      frame[at] = 245; frame[at + 1] = 115; frame[at + 2] = 220;
+    }
+  }
+  const cursor = detectMapCursor(frame, width, height);
+  assert.ok(cursor);
+  assert.ok(Math.abs(cursor.screenX - center.x) <= 3);
+  assert.ok(Math.abs(cursor.screenY - center.y) <= 3);
+
+  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor };
+  const observations = detectSpatialObservations([
+    { ...base, time: 12 }, { ...base, time: 13 },
+    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 } },
+  ]);
+  assert.equal(observations.length, 2);
+  assert.equal(observations[0].source, 'observed-map-cursor');
+});
+
+test('separates observed route anchors, inferred gaps, and short predictions', () => {
+  const observations = [
+    { time: 10, x: 200, y: 600, confidence: 0.8 },
+    { time: 20, x: 300, y: 550, confidence: 0.75 },
+  ];
+  const route = buildPlayerRoute(observations);
+  assert.equal(route[0].source, 'observed');
+  assert.equal(route.find(point => point.time === 15).source, 'inferred-between-observations');
+  assert.equal(route.at(-1).source, 'observed');
+  const [prediction] = buildShortPredictions(observations);
+  assert.equal(prediction.source, 'predicted-from-observed-motion');
+  assert.equal(prediction.expiresAt, 26);
+  assert.ok(prediction.frames.at(-1).confidence < prediction.frames[0].confidence);
 });
 
 test('removes only human-verified false death windows', () => {

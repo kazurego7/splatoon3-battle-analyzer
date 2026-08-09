@@ -7,7 +7,7 @@ import { analysisEvents, classifySamples, detectMatchSegments } from './segmenta
 import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
 import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
-import { analyzeMapCandidate, selectObservedMapFrame } from './map-analysis.mjs';
+import { analyzeMapCandidate, buildPlayerRoute, buildShortPredictions, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 
@@ -318,16 +318,19 @@ export class Pipeline {
       let mapCandidates;
       try {
         const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
-        if (cached.version !== 1 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
+        if (cached.version !== 4 || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
         mapCandidates = cached.samples;
       } catch {
         mapCandidates = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
           interval: 1,
           onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
         });
-        await fs.writeFile(mapCache, `${JSON.stringify({ version: 1, samples: mapCandidates })}\n`);
+        await fs.writeFile(mapCache, `${JSON.stringify({ version: 4, samples: mapCandidates })}\n`);
       }
       const observedMap = selectObservedMapFrame(mapCandidates, deaths);
+      const spatialObservations = detectSpatialObservations(mapCandidates);
+      const playerRoute = buildPlayerRoute(spatialObservations);
+      const spatialPredictions = buildShortPredictions(spatialObservations);
       let stageMap = null;
       if (observedMap) {
         const mapName = `match-${String(match.number).padStart(2, '0')}-map.jpg`;
@@ -359,7 +362,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 7,
+        version: 8,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -382,12 +385,19 @@ export class Pipeline {
           },
         },
         stageMap,
+        playerRoute,
+        spatial: {
+          observations: spatialObservations,
+          predictions: spatialPredictions,
+          coordinateSpace: { width: 1000, height: 1000 },
+          policy: 'observed-map-information-only',
+        },
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
           deaths: respawnRuns.length ? 'automatic-hud-and-respawn-timing-fusion' : identityConfirmed ? 'automatic-self-hud' : 'unavailable-no-death-evidence',
           playerCounts: 'automatic-battle-hud',
-          playerRoute: 'not-yet-available',
+          playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
           gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },

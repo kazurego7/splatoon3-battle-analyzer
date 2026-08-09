@@ -48,4 +48,11 @@
 
 - `validation.deaths`: リザルトのデス数と検出件数の照合結果
 
-現在の解析JSONはバージョン7です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed` と、そこから予測した `predicted` を分離して保存します。
+- `spatial.observations`: マップを開いた直後に映像から確認できた位置アンカー
+  - `source: observed-map-cursor` はマップ描画が安定した最初のカーソルから得た自分の位置候補
+  - 画面座標、マップ判定スコア、カーソル判定スコアを `evidence` に保持
+- `playerRoute`: 観測アンカーと、その間を結ぶ低確度の推定動線
+  - `source: observed` は直接観測、`inferred-between-observations` は観測点間の推定
+- `spatial.predictions`: 過去2観測の移動方向を用いた6秒以内の予測。実位置とは別表示する
+
+現在の解析JSONはバージョン8です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

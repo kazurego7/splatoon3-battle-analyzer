@@ -74,14 +74,16 @@ function renderChart() {
   elements.chartEvents.innerHTML='';currentAnalysis.events.filter(event=>event.type!=='death').forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-event'}));});
 }
 
-function interpolate(points,time) { if(!points?.length)return null;if(time<=points[0][0])return points[0].slice(1);if(time>=points.at(-1)[0])return points.at(-1).slice(1);const index=points.findIndex(point=>point[0]>=time);const left=points[index-1],right=points[index],ratio=(time-left[0])/(right[0]-left[0]);return left.slice(1).map((value,i)=>value+(right[i+1]-value)*ratio); }
+function spatialPoint(point) { return Array.isArray(point)?{time:point[0],values:point.slice(1),source:point.source||null,confidence:point.confidence??null}:{time:point.time,values:[point.x,point.y],source:point.source||null,confidence:point.confidence??null}; }
+function interpolate(points,time) { if(!points?.length)return null;const normalized=points.map(spatialPoint);if(time<=normalized[0].time)return normalized[0].values;if(time>=normalized.at(-1).time)return normalized.at(-1).values;const index=normalized.findIndex(point=>point.time>=time);const left=normalized[index-1],right=normalized[index],ratio=(time-left.time)/(right.time-left.time);return left.values.map((value,i)=>typeof value==='number'&&typeof right.values[i]==='number'?value+(right.values[i]-value)*ratio:value); }
 
 function renderMapBase() {
   const map=currentAnalysis.stageMap;
   elements.routeLayer.innerHTML=''; elements.entityLayer.innerHTML=''; elements.playerLayer.innerHTML='';
   if(map?.imageUrl){elements.stageMapImage.src=map.imageUrl;elements.stageMapImage.hidden=false;elements.mapPlaceholder.hidden=true;elements.mapSourceStatus.textContent=map.stage?`${map.stage}｜${map.rule}`:`映像 ${formatTime(map.observedAt)} で観測`;}else{elements.stageMapImage.hidden=true;elements.mapPlaceholder.hidden=false;elements.mapSourceStatus.textContent='マップ未検出';}
   const route=currentAnalysis.route||currentAnalysis.playerRoute||[];
-  route.slice(0,-1).forEach((point,index)=>{const next=route[index+1];const line=svgElement('line',{x1:point[1]??point.x,y1:point[2]??point.y,x2:next[1]??next.x,y2:next[2]??next.y,class:`route-segment ${(point.source||next.source)==='predicted'?'predicted':''}`});line.dataset.time=point[0]??point.time;elements.routeLayer.append(line);});
+  route.slice(0,-1).forEach((point,index)=>{const next=route[index+1],source=point.source||next.source||'';const line=svgElement('line',{x1:point[1]??point.x,y1:point[2]??point.y,x2:next[1]??next.x,y2:next[2]??next.y,class:`route-segment ${source==='observed'?'observed':'inferred'}`});line.dataset.time=point[0]??point.time;elements.routeLayer.append(line);});
+  for(const observation of currentAnalysis.spatial?.observations||[]){const marker=svgElement('circle',{cx:observation.x,cy:observation.y,r:11,class:'route-observation'});marker.dataset.time=observation.time;elements.routeLayer.append(marker);}
 }
 
 function renderVideoDetections(time) {
@@ -91,9 +93,10 @@ function renderVideoDetections(time) {
 }
 
 function renderSpatialState(time) {
-  const route=currentAnalysis.route||currentAnalysis.playerRoute||[]; [...elements.routeLayer.children].forEach(line=>{const distance=Math.abs(Number(line.dataset.time)-time);line.style.opacity=distance<=12?.95:distance<=35?.32:.08;});
-  elements.entityLayer.innerHTML='';elements.playerLayer.innerHTML='';const player=interpolate(route,time);if(player){elements.playerLayer.append(svgElement('circle',{cx:player[0],cy:player[1],r:17,class:'map-player'}));}
+  const route=currentAnalysis.route||currentAnalysis.playerRoute||[]; [...elements.routeLayer.children].forEach(item=>{const distance=Math.abs(Number(item.dataset.time)-time);item.style.opacity=distance<=12?.95:distance<=35?.32:.08;});
+  elements.entityLayer.innerHTML='';elements.playerLayer.innerHTML='';const firstTime=route.length?(route[0][0]??route[0].time):null,lastTime=route.length?(route.at(-1)[0]??route.at(-1).time):null;const player=firstTime!=null&&time>=firstTime&&time<=lastTime?interpolate(route,time):null;if(player){const state=[...route].reverse().find(point=>(point[0]??point.time)<=time)||route[0];elements.playerLayer.append(svgElement('circle',{cx:player[0],cy:player[1],r:17,class:`map-player ${(state.source||'observed')==='observed'?'observed':'inferred'}`}));}
   const active=(currentAnalysis.detections||[]).filter(item=>time>=item.frames?.[0]?.[0]&&time<=item.frames?.at(-1)?.[0]);active.forEach(item=>{const values=interpolate(item.frames,time);if(!values||values.length<6)return;const x=values[4],y=values[5];elements.entityLayer.append(svgElement('circle',{cx:x,cy:y,r:18,class:`map-observed ${item.team}`}));});
+  const predictions=(currentAnalysis.spatial?.predictions||[]).filter(item=>time>=item.observedAt&&time<=item.expiresAt);for(const prediction of predictions){const points=prediction.frames.filter(frame=>frame.time>=time-.5).map(frame=>`${frame.x},${frame.y}`).join(' ');if(points)elements.entityLayer.append(svgElement('polyline',{points,class:`map-prediction ${prediction.team}`}));}
   elements.mapClock.textContent=formatTime(time);renderVideoDetections(time);
 }
 
