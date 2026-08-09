@@ -47,11 +47,11 @@
             </div>
             <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数 —</span></div>
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="timeline-markers"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="再生位置"></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 205" role="img" aria-label="動画と同期するゲームカウントと人数有利・人数不利の状況">
+            <svg id="analysis-chart" viewBox="0 0 1000 150" role="img" aria-label="ゲームカウントの背景色で人数有利・人数不利と枚数差を示す時系列グラフ">
               <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-series"></g><g id="chart-events"></g><g id="chart-cursor"></g>
-              <rect id="chart-hit" x="34" y="22" width="944" height="166"></rect>
+              <rect id="chart-hit" x="34" y="18" width="944" height="124"></rect>
             </svg>
-            <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="even"></i>五分</span><span><i class="analysis"></i>分析ポイント</span><span><i class="death"></i>シークバー上のデス</span></div>
+            <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="even"></i>五分</span><span class="advantage-note">濃いほど枚数差大</span><span><i class="analysis"></i>分析ポイント</span><span><i class="death"></i>シークバー上のデス</span></div>
           </section>
 
           <section class="panel map-panel" aria-labelledby="map-heading">

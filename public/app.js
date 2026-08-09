@@ -10,7 +10,7 @@ const elements = {
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:30, countBottom:118, advantageTop:142, advantageBottom:170, labelY:195 };
+const chartBounds = { left:34, right:978, countTop:25, countBottom:110, labelY:140 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -64,14 +64,14 @@ function gameCountAt(time) { return stateAt(currentAnalysis?.gameFlow?.gameCount
 function addChartLabel(text,x,y,anchor='end',className='chart-text') { const label=svgElement('text',{x,y,'text-anchor':anchor,class:className});label.textContent=text;elements.chartGrid.append(label); }
 function renderChart() {
   const duration=currentAnalysis.media.duration; const alive=currentAnalysis.gameFlow?.playerCounts||[]; const game=currentAnalysis.gameFlow?.gameCounts||[];
-  elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.advantageTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.advantageBottom-chartBounds.advantageTop,class:`chart-advantage ${item.difference>0?'positive':item.difference<0?'negative':'even'} ${item.source==='held'?'held':''}`}));});
+  elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;const difference=Math.max(-4,Math.min(4,item.difference||0)),strength=difference===0?.035:(.1+Math.abs(difference)*.11)*(item.source==='held'?.55:1);elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.countTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.countBottom-chartBounds.countTop,'fill-opacity':Number(strength.toFixed(3)),class:`chart-advantage ${difference>0?'positive':difference<0?'negative':'even'}`}));});
   elements.chartGrid.innerHTML='';
   [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,chartBounds.left-8,y+5);});
-  elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:132,y2:132,class:'chart-divider'})); addChartLabel('カウント',chartBounds.left,21,'start','chart-text axis-title'); addChartLabel('人数差',chartBounds.left,137,'start','chart-text axis-title');
+  addChartLabel('カウント（背景＝人数差）',chartBounds.left,18,'start','chart-text axis-title');
   for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle');}
   elements.chartCountSeries.replaceChildren(svgElement('path',{d:stepPath(game,'teamCount',gameY),class:'chart-count-team'}),svgElement('path',{d:stepPath(game,'enemyCount',gameY),class:'chart-count-enemy'}));
   elements.chartSeries.innerHTML='';
-  elements.chartEvents.innerHTML='';currentAnalysis.events.filter(event=>event.type!=='death').forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.advantageBottom,class:'chart-event'}));});
+  elements.chartEvents.innerHTML='';currentAnalysis.events.filter(event=>event.type!=='death').forEach(event=>{const x=chartX(event.time);elements.chartEvents.append(svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-event'}));});
 }
 
 function interpolate(points,time) { if(!points?.length)return null;if(time<=points[0][0])return points[0].slice(1);if(time>=points.at(-1)[0])return points.at(-1).slice(1);const index=points.findIndex(point=>point[0]>=time);const left=points[index-1],right=points[index],ratio=(time-left[0])/(right[0]-left[0]);return left.slice(1).map((value,i)=>value+(right[i+1]-value)*ratio); }
@@ -110,7 +110,7 @@ async function openMatch(recording,match) {
 function updatePlaybackUi() {
   if(!currentAnalysis)return;const time=elements.video.currentTime||0,ratio=Math.max(0,Math.min(1,time/currentAnalysis.media.duration));elements.currentTime.textContent=formatTime(time);elements.seek.value=time;elements.timelineProgress.style.width=`${ratio*100}%`;
   const alive=playerCountAt(time);if(alive){const difference=alive.difference>0?`${alive.difference}枚有利`:alive.difference<0?`${Math.abs(alive.difference)}枚不利`:'五分';elements.playerCountStatus.textContent=`人数差 ${difference}`;}else elements.playerCountStatus.textContent='人数差 —';
-  const game=gameCountAt(time);elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount} / 相手 ${game.enemyCount}`:'カウント —';elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.countTop,y2:chartBounds.advantageBottom,class:'chart-cursor'}));renderSpatialState(time);
+  const game=gameCountAt(time);elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount} / 相手 ${game.enemyCount}`:'カウント —';elements.chartCursor.replaceChildren(svgElement('line',{x1:chartX(time),x2:chartX(time),y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-cursor'}));renderSpatialState(time);
 }
 
 async function refresh(){try{recordings=await(await fetch('/api/recordings')).json();renderRecordings();}catch(error){console.error(error);}}

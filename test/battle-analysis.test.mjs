@@ -118,5 +118,27 @@ test('attaches respawn countdown evidence to the matching HUD death', () => {
     [{ time: 100, confidence: 0.95, evidence: { detector: 'respawn-countdown-ui', variant: 'normal' } }],
   );
   assert.equal(death.evidence.respawn.detector, 'respawn-countdown-ui');
+  assert.equal(death.evidence.timing.respawnUiDelay, 5);
+  assert.equal(death.evidence.timing.timestampSource, 'self-hud-cross');
+  assert.equal(death.time, 95);
   assert.equal(death.confidence, 0.95);
+});
+
+test('uses the first respawn UI frame when the self HUD was hidden', () => {
+  const [death] = attachRespawnEvidence([], [
+    { time: 42.25, end: 46, duration: 3.75, confidence: 0.94, type: 'death', title: '自分がデス', evidence: { detector: 'respawn-countdown-ui', variant: 'tacticooler' } },
+  ]);
+  assert.equal(death.time, 42.25);
+  assert.equal(death.evidence.timing.timestampSource, 'respawn-ui-fallback');
+  assert.equal(death.evidence.timing.hudDetectedAt, null);
+});
+
+test('uses earlier respawn evidence when the HUD cross appears after a map screen', () => {
+  const [death] = attachRespawnEvidence(
+    [{ time: 50, end: 56, confidence: 0.8, evidence: { detector: 'self-hud-cross' } }],
+    [{ time: 48.5, end: 52, duration: 3.5, confidence: 0.94, type: 'death', title: '自分がデス', evidence: { detector: 'respawn-countdown-ui' } }],
+  );
+  assert.equal(death.time, 48.5);
+  assert.equal(death.evidence.timing.timestampSource, 'respawn-ui-fallback');
+  assert.equal(death.evidence.timing.respawnUiDelay, 0);
 });

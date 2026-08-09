@@ -23,8 +23,10 @@
 - `series[].motion`: 連続フレームの画面変化量
 - `series[].hud`: HUDらしさのスコア
 - `gameFlow.deaths.self`: 自分のデス開始秒と、次に生存表示を確認するまでの秒数
-  - 上部HUDの本人ブキ枠は開始時刻の補助根拠
-  - 右下の「復活まであとX秒」UIはデス確定の主根拠（通常色・エナジースタンド色を区別）
+  - 上部HUDの本人ブキ枠と、右下の「復活まであとX秒」UIの初出時刻をデスごとに照合
+  - `events[].evidence.timing` に `hudDetectedAt`、`respawnUiDetectedAt`、実測差の `respawnUiDelay` を保存
+  - 上部HUDを確認できない区間では、復活UIの初出を `respawn-ui-fallback` としてデス時刻に採用
+  - 復活UIは通常色・エナジースタンド色を区別して検出
 - `playerIdentity`: リザルトの自分行とブキ画像をHUDへ照合した結果
   - `hudSlot`: 自軍HUDの左から何番目か（0始まり）
   - `method`: 同じ試合のリザルトを使った `result-row-weapon-match`、または直前試合から引き継いだ `carried-result-weapon-match`
@@ -46,4 +48,4 @@
 
 - `validation.deaths`: リザルトのデス数と検出件数の照合結果
 
-現在の解析JSONはバージョン6です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed` と、そこから予測した `predicted` を分離して保存します。
+現在の解析JSONはバージョン7です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed` と、そこから予測した `predicted` を分離して保存します。

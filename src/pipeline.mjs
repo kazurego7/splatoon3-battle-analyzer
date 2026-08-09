@@ -294,7 +294,7 @@ export class Pipeline {
         await fs.writeFile(respawnCache, `${JSON.stringify({ modelVersion: respawnModelVersion, samples: respawnSamples })}\n`);
       }
       const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayEnd });
-      const deaths = attachRespawnEvidence(applyVerifiedDeathWindows(hudDeaths, verifiedMatch), respawnRuns);
+      const deaths = applyVerifiedDeathWindows(attachRespawnEvidence(hudDeaths, respawnRuns), verifiedMatch);
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
       const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
       let gameCountSamples;
@@ -359,7 +359,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 6,
+        version: 7,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -385,7 +385,7 @@ export class Pipeline {
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           sceneAnalysis: 'frame-difference',
-          deaths: identityConfirmed ? 'automatic-respawn-ui-with-result-validation' : 'unavailable-self-not-confirmed',
+          deaths: respawnRuns.length ? 'automatic-hud-and-respawn-timing-fusion' : identityConfirmed ? 'automatic-self-hud' : 'unavailable-no-death-evidence',
           playerCounts: 'automatic-battle-hud',
           playerRoute: 'not-yet-available',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
