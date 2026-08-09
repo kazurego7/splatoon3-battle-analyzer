@@ -284,23 +284,38 @@ export function detectSpatialObservations(samples) {
   return runs.flatMap(run => {
     const peakNeutral = Math.max(...run.map(sample => sample.neutralRatio));
     if (peakNeutral < 0.38) return [];
-    const initial = run.find(sample => sample.neutralRatio >= Math.max(0.36, peakNeutral - 0.05)
-      && sample.score >= 0.32 && sample.cursor?.confidence >= 0.42);
+    const initial = run
+      .filter(sample => sample.neutralRatio >= Math.max(0.36, peakNeutral - 0.05)
+        && sample.score >= 0.32 && sample.cursor?.confidence >= 0.42)
+      .map(sample => {
+        const marker = (sample.allies || [])
+          .map(item => ({ item, distance: Math.hypot(item.screenX - sample.cursor.screenX, item.screenY - sample.cursor.screenY) }))
+          .filter(item => item.distance <= 34)
+          .sort((left, right) => left.distance - right.distance || right.item.confidence - left.item.confidence)[0];
+        return marker ? { sample, marker: marker.item, distance: marker.distance } : null;
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.distance - right.distance || right.marker.confidence - left.marker.confidence)[0];
     if (!initial) return [];
-    const confidence = Math.min(0.82, initial.cursor.confidence * 0.75 + Math.min(0.18, run.length * 0.04));
+    const { sample, marker, distance } = initial;
+    const confidence = Math.min(0.86, marker.confidence * 0.58 + sample.cursor.confidence * 0.22 + Math.min(0.12, run.length * 0.03));
     return {
       id: '',
-      time: initial.time,
-      x: initial.cursor.x,
-      y: initial.cursor.y,
+      time: sample.time,
+      x: marker.x,
+      y: marker.y,
+      directionDegrees: marker.directionDegrees,
       team: 'self',
-      source: 'observed-map-cursor',
+      source: 'observed-map-self-marker-under-cursor',
       confidence: Number(confidence.toFixed(3)),
       evidence: {
-        mapScore: initial.score,
-        cursorScore: initial.cursor.score,
-        screen: { x: initial.cursor.screenX, y: initial.cursor.screenY },
+        mapScore: sample.score,
+        cursorScore: sample.cursor.score,
+        markerConfidence: marker.confidence,
+        cursorMarkerDistance: Number(distance.toFixed(2)),
+        screen: { x: marker.screenX, y: marker.screenY },
         observedUntil: run.at(-1).time,
+        limitation: 'self-marker-assumed-when-map-cursor-overlaps-team-marker',
       },
     };
   }).map((observation, index) => ({ ...observation, id: `self-map-${index + 1}` }));
@@ -311,17 +326,23 @@ export function buildPlayerRoute(observations) {
   const route = [];
   for (let index = 0; index < observations.length; index += 1) {
     const current = observations[index];
-    route.push({ time: current.time, x: current.x, y: current.y, source: 'observed', confidence: current.confidence });
+    route.push({ time: current.time, x: current.x, y: current.y, directionDegrees: current.directionDegrees, source: 'observed', confidence: current.confidence });
     const next = observations[index + 1];
     if (!next) continue;
     const gap = next.time - current.time;
     for (let time = Math.ceil(current.time + 1); time < next.time; time += 1) {
       const ratio = (time - current.time) / gap;
       const nearestDistance = Math.min(time - current.time, next.time - time);
+      const directionDelta = current.directionDegrees == null || next.directionDegrees == null
+        ? null
+        : (((next.directionDegrees - current.directionDegrees) % 360) + 540) % 360 - 180;
       route.push({
         time,
         x: Number((current.x + (next.x - current.x) * ratio).toFixed(1)),
         y: Number((current.y + (next.y - current.y) * ratio).toFixed(1)),
+        directionDegrees: current.directionDegrees == null || next.directionDegrees == null
+          ? null
+          : Number(((current.directionDegrees + directionDelta * ratio + 360) % 360).toFixed(1)),
         source: 'inferred-between-observations',
         confidence: Number(Math.max(0.12, Math.min(current.confidence, next.confidence) * Math.exp(-nearestDistance / 18)).toFixed(3)),
       });
@@ -377,7 +398,9 @@ export function detectAllyTracks(samples) {
     const usable = run.filter(sample => sample.neutralRatio >= 0.36 && sample.allies?.length);
     if (!usable.length) return [];
     const sample = [...usable].sort((left, right) => right.allies.length - left.allies.length || left.time - right.time)[0];
-    return sample.allies.map(marker => ({
+    return sample.allies
+      .filter(marker => !sample.cursor || Math.hypot(marker.screenX - sample.cursor.screenX, marker.screenY - sample.cursor.screenY) > 34)
+      .map(marker => ({
       time: sample.time,
       x: marker.x,
       y: marker.y,
@@ -385,7 +408,7 @@ export function detectAllyTracks(samples) {
       confidence: marker.confidence,
       source: 'observed-map-ally-marker',
       evidence: { ...marker.evidence, screen: { x: marker.screenX, y: marker.screenY }, observedUntil: run.at(-1).time },
-    }));
+      }));
   });
 
   const stationaryClusters = [];
@@ -510,12 +533,16 @@ function routeStateAt(route, time) {
 }
 
 function routeHeadingAt(route, time) {
+  const facing = route
+    .filter(point => point.source === 'observed' && point.directionDegrees != null && Math.abs(point.time - time) <= 20)
+    .sort((left, right) => Math.abs(left.time - time) - Math.abs(right.time - time))[0];
+  if (facing) return { radians: facing.directionDegrees * Math.PI / 180, source: 'nearby-observed-map-facing-direction' };
   const nearby = route.filter(point => Math.abs(point.time - time) <= 8);
   if (nearby.length < 2) return null;
   const first = nearby[0];
   const last = nearby.at(-1);
   if (Math.hypot(last.x - first.x, last.y - first.y) < 8) return null;
-  return Math.atan2(last.y - first.y, last.x - first.x);
+  return { radians: Math.atan2(last.y - first.y, last.x - first.x), source: 'self-route-motion-direction' };
 }
 
 export function buildEnemySightPredictions(detections, playerRoute, { seconds = 4 } = {}) {
@@ -525,16 +552,17 @@ export function buildEnemySightPredictions(detections, playerRoute, { seconds = 
       const [time, x, _y, width, height] = frame;
       const self = routeStateAt(playerRoute, time);
       const heading = routeHeadingAt(playerRoute, time);
-      if (!self || heading == null) return [];
+      if (!self || !heading) return [];
       const screenCenterX = x + width / 2;
       const bearingOffset = (screenCenterX - 0.5) * (Math.PI / 2);
       const distance = clamp(22 / Math.max(0.04, height), 55, 210);
-      const bearing = heading + bearingOffset;
+      const bearing = heading.radians + bearingOffset;
       return [{
         time,
         x: clamp(self.x + Math.cos(bearing) * distance, 0, 1000),
         y: clamp(self.y + Math.sin(bearing) * distance, 0, 1000),
         confidence: Math.min(0.28, detection.confidence * self.confidence * 0.48),
+        headingSource: heading.source,
       }];
     });
     if (!projected.length) continue;
@@ -570,9 +598,12 @@ export function buildEnemySightPredictions(detections, playerRoute, { seconds = 
       confidence: Number(anchor.confidence.toFixed(3)),
       evidence: {
         detectionId: detection.id,
-        routeHeadingAssumption: true,
+        headingSource: anchor.headingSource,
+        routeHeadingAssumption: anchor.headingSource === 'self-route-motion-direction',
         horizontalFieldOfViewDegrees: 90,
-        limitation: 'camera-heading-approximated-by-self-route-direction',
+        limitation: anchor.headingSource === 'nearby-observed-map-facing-direction'
+          ? 'camera-heading-approximated-by-nearby-map-facing-direction'
+          : 'camera-heading-approximated-by-self-route-direction',
       },
     });
   }

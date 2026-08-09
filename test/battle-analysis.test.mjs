@@ -115,7 +115,7 @@ test('selects an observed map frame inside a death review window', () => {
   assert.equal(selected.source, 'observed-map-screen');
 });
 
-test('detects a pink map cursor and turns map-open runs into position observations', () => {
+test('requires a team marker under the pink map cursor for self-position observations', () => {
   const width = 960;
   const height = 540;
   const frame = Buffer.alloc(width * height * 3, 110);
@@ -133,13 +133,15 @@ test('detects a pink map cursor and turns map-open runs into position observatio
   assert.ok(Math.abs(cursor.screenX - center.x) <= 3);
   assert.ok(Math.abs(cursor.screenY - center.y) <= 3);
 
-  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor };
+  const selfMarker = { ...cursor, screenX: cursor.screenX + 3, screenY: cursor.screenY + 2, x: cursor.x + 6, y: cursor.y + 4, directionDegrees: 315, confidence: 0.74 };
+  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor, allies: [selfMarker] };
   const observations = detectSpatialObservations([
     { ...base, time: 12 }, { ...base, time: 13 },
-    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 } },
+    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 }, allies: [{ ...selfMarker, x: selfMarker.x + 80, y: selfMarker.y - 20 }] },
   ]);
   assert.equal(observations.length, 2);
-  assert.equal(observations[0].source, 'observed-map-cursor');
+  assert.equal(observations[0].source, 'observed-map-self-marker-under-cursor');
+  assert.equal(observations[0].directionDegrees, 315);
 });
 
 test('separates observed route anchors, inferred gaps, and short predictions', () => {
@@ -314,6 +316,10 @@ test('projects a video enemy candidate as an explicitly uncertain map prediction
   assert.equal(predictions[0].frames[0].radius, 85);
   assert.ok(predictions[0].confidence <= 0.28);
   assert.equal(predictions[0].evidence.routeHeadingAssumption, true);
+  const facingRoute = route.map(point => ({ ...point, source: point.time === 10 ? 'observed' : 'inferred-between-observations', directionDegrees: point.time === 10 ? 270 : null }));
+  const [facingPrediction] = buildEnemySightPredictions(detections, facingRoute);
+  assert.equal(facingPrediction.evidence.headingSource, 'nearby-observed-map-facing-direction');
+  assert.equal(facingPrediction.evidence.routeHeadingAssumption, false);
   assert.deepEqual(buildEnemySightPredictions(detections, route.slice(0, 5)), []);
 });
 

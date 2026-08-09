@@ -53,8 +53,9 @@
 - `validation.deaths`: リザルトのデス数と検出件数の照合結果
 
 - `spatial.observations`: マップを開いた直後に映像から確認できた位置アンカー
-  - `source: observed-map-cursor` はマップ描画が安定した最初のカーソルから得た自分の位置候補
-  - 画面座標、マップ判定スコア、カーソル判定スコアを `evidence` に保持
+  - `source: observed-map-self-marker-under-cursor` は、ピンクの選択カーソルと青いチームマーカーが34px以内で重なった場面から得た自分位置候補
+  - カーソル単体は自分位置として採用しない。重なったマーカーの座標・向き、画面座標、両者の距離を `evidence` に保持
+  - カーソルが味方へ移動している可能性は残るため、`evidence.limitation` と確度を保持する
 - `playerRoute`: 観測アンカーと、その間を結ぶ低確度の推定動線
   - `source: observed` は直接観測、`inferred-between-observations` は観測点間の推定
 - `spatial.predictions`: 過去2観測の移動方向を用いた6秒以内の予測。実位置とは別表示する
@@ -65,7 +66,8 @@
 - `spatial.predictions` の `source: predicted-from-map-facing-direction`: 観測した向き三角形から6秒だけ延長した味方予測
 - `spatial.predictions` の `source: predicted-from-video-candidate-and-self-route-heading`: 動画内の敵候補を、自分の同時刻の推定位置と移動方向へ接続した低確度予測
   - 画面内の左右位置を90度の仮定視野角へ変換し、矩形の高さを距離の大まかな手掛かりとして使う
-  - カメラの向きを自分の移動方向で近似しているため、点ではなく時間とともに広がる不確実範囲として表示
+  - 20秒以内にマップで観測した向きがあればそれを優先し、なければ自分の移動方向でカメラ向きを近似する
+  - どちらも実際のカメラ姿勢ではないため、点ではなく時間とともに広がる不確実範囲として表示
   - `evidence.limitation` に近似条件を保持し、敵の観測座標とは扱わない
 - `spatial.threatZones`: 自分のデス直後10秒以内にマップで確認した位置を根拠とする敵脅威範囲
   - 敵の正確な位置・方向は断定せず、`type: uncertainty-zone` として時間とともに広がる範囲を保存
@@ -79,4 +81,4 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン14です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン15です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

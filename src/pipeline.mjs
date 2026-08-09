@@ -419,7 +419,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 14,
+        version: 15,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -458,7 +458,7 @@ export class Pipeline {
           deaths: respawnRuns.length ? 'automatic-hud-and-respawn-timing-fusion' : identityConfirmed ? 'automatic-self-hud' : 'unavailable-no-death-evidence',
           playerWeapon: weaponEvidence?.status !== 'candidate-only' ? weaponEvidence.status : 'unavailable-low-confidence-result-icon-match',
           playerCounts: 'automatic-battle-hud',
-          playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
+          playerRoute: playerRoute.length ? 'automatic-overlapped-self-marker-and-inferred-map-route' : 'unavailable-no-cursor-overlapped-self-marker',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
           enemyRoutes: enemySightPredictions.length ? 'predicted-from-video-candidate-and-self-route-heading' : 'unavailable-no-overlapping-video-candidate-and-self-route',
