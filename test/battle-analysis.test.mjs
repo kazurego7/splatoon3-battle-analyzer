@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 
 function sample(time, state = 'alive') {
@@ -196,6 +196,20 @@ test('removes repeated static map icons and predicts an ally from the observed f
   assert.equal(predictions.length, 3);
   assert.equal(predictions[0].team, 'ally');
   assert.ok(predictions[0].frames.at(-1).x > predictions[0].frames[0].x);
+});
+
+test('represents a grounded enemy hypothesis as an expanding uncertainty zone instead of an observed position', () => {
+  const zones = buildEnemyThreatZones(
+    [{ id: 'death-1', time: 40, confidence: 0.95 }],
+    [{ id: 'self-map-1', time: 44, x: 420, y: 610, confidence: 0.7 }],
+  );
+  assert.equal(zones.length, 1);
+  assert.equal(zones[0].type, 'uncertainty-zone');
+  assert.equal(zones[0].source, 'predicted-near-self-death-location');
+  assert.equal(zones[0].evidence.positionDelay, 4);
+  assert.ok(zones[0].frames.at(-1).radius > zones[0].frames[0].radius);
+  assert.ok(zones[0].frames.at(-1).confidence < zones[0].frames[0].confidence);
+  assert.deepEqual(buildEnemyThreatZones([{ id: 'death-2', time: 10 }], [{ time: 30, x: 1, y: 1 }]), []);
 });
 
 test('removes only human-verified false death windows', () => {

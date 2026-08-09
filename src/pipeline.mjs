@@ -7,7 +7,7 @@ import { analysisEvents, classifySamples, detectMatchSegments } from './segmenta
 import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
 import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
-import { analyzeMapCandidate, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
+import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 
@@ -333,6 +333,7 @@ export class Pipeline {
       const spatialPredictions = buildShortPredictions(spatialObservations);
       const allyTracks = detectAllyTracks(mapCandidates);
       const allyPredictions = buildEntityPredictions(allyTracks);
+      const enemyThreatZones = buildEnemyThreatZones(deaths, spatialObservations);
       let stageMap = null;
       if (observedMap) {
         const mapName = `match-${String(match.number).padStart(2, '0')}-map.jpg`;
@@ -364,7 +365,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 9,
+        version: 10,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -392,6 +393,7 @@ export class Pipeline {
           observations: spatialObservations,
           entityTracks: allyTracks,
           predictions: [...spatialPredictions, ...allyPredictions].sort((left, right) => left.observedAt - right.observedAt),
+          threatZones: enemyThreatZones,
           coordinateSpace: { width: 1000, height: 1000 },
           policy: 'observed-map-information-only',
         },
@@ -402,6 +404,7 @@ export class Pipeline {
           playerCounts: 'automatic-battle-hud',
           playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
+          enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
           gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },

@@ -59,5 +59,9 @@
   - 複数回同じ座標に現れるスタート地点などの静的アイコンは除外
   - 名前を確定できないため、別時点は近傍対応の匿名トラックとして保持
 - `spatial.predictions` の `source: predicted-from-map-facing-direction`: 観測した向き三角形から6秒だけ延長した味方予測
+- `spatial.threatZones`: 自分のデス直後10秒以内にマップで確認した位置を根拠とする敵脅威範囲
+  - 敵の正確な位置・方向は断定せず、`type: uncertainty-zone` として時間とともに広がる範囲を保存
+  - `evidence` にデス時刻、位置観測時刻、その時間差を保持
+  - 映像内で敵を直接検出した観測ではないため、常に `predicted` として表示
 
-現在の解析JSONはバージョン9です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン10です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

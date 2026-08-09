@@ -457,3 +457,40 @@ export function buildEntityPredictions(tracks, { seconds = 6, distance = 72 } = 
   }
   return predictions;
 }
+
+export function buildEnemyThreatZones(deaths, selfObservations, { seconds = 6, maximumDelay = 10 } = {}) {
+  const zones = [];
+  for (const death of deaths) {
+    const position = selfObservations
+      .filter(observation => observation.time >= death.time && observation.time - death.time <= maximumDelay)
+      .sort((left, right) => left.time - right.time)[0];
+    if (!position) continue;
+    const confidence = Number(Math.min(0.48, (death.confidence || 0.5) * position.confidence * 0.72).toFixed(3));
+    zones.push({
+      id: `enemy-threat-${zones.length + 1}`,
+      team: 'enemy',
+      type: 'uncertainty-zone',
+      observedAt: death.time,
+      expiresAt: death.time + seconds,
+      x: position.x,
+      y: position.y,
+      source: 'predicted-near-self-death-location',
+      confidence,
+      frames: Array.from({ length: seconds + 1 }, (_, offset) => ({
+        time: death.time + offset,
+        x: position.x,
+        y: position.y,
+        radius: Number((55 + offset * 11).toFixed(1)),
+        confidence: Number((confidence * Math.exp(-offset / 3.5)).toFixed(3)),
+      })),
+      evidence: {
+        deathId: death.id,
+        deathTime: death.time,
+        positionObservationId: position.id,
+        positionObservedAt: position.time,
+        positionDelay: Number((position.time - death.time).toFixed(2)),
+      },
+    });
+  }
+  return zones;
+}
