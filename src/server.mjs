@@ -75,6 +75,7 @@ const server = http.createServer(async (request, response) => {
     const parts = url.pathname.split('/').filter(Boolean);
 
     if (request.method === 'GET' && url.pathname === '/api/recordings') {
+      response.setHeader('Cache-Control', 'no-store');
       json(response, 200, store.list());
       return;
     }
@@ -92,6 +93,9 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === 'GET' && parts[0] === 'api' && parts[1] === 'analysis') {
+      // Re-analysis replaces the JSON at the same URL. Never let the browser
+      // keep showing stale death markers or event timestamps.
+      response.setHeader('Cache-Control', 'no-store');
       await serveFile(request, response, safeJoin(ANALYSIS_ROOT, parts.slice(2)));
       return;
     }
