@@ -54,5 +54,10 @@
 - `playerRoute`: 観測アンカーと、その間を結ぶ低確度の推定動線
   - `source: observed` は直接観測、`inferred-between-observations` は観測点間の推定
 - `spatial.predictions`: 過去2観測の移動方向を用いた6秒以内の予測。実位置とは別表示する
+- `spatial.entityTracks`: マップ画面で直接確認できた味方マーカーの時系列
+  - 青い円環、内部のブキ形状、白い向き三角形を組み合わせて検出
+  - 複数回同じ座標に現れるスタート地点などの静的アイコンは除外
+  - 名前を確定できないため、別時点は近傍対応の匿名トラックとして保持
+- `spatial.predictions` の `source: predicted-from-map-facing-direction`: 観測した向き三角形から6秒だけ延長した味方予測
 
-現在の解析JSONはバージョン8です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン9です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

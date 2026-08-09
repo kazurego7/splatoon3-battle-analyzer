@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, buildPlayerRoute, buildShortPredictions, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 
 function sample(time, state = 'alive') {
@@ -153,6 +153,49 @@ test('separates observed route anchors, inferred gaps, and short predictions', (
   assert.equal(prediction.source, 'predicted-from-observed-motion');
   assert.equal(prediction.expiresAt, 26);
   assert.ok(prediction.frames.at(-1).confidence < prediction.frames[0].confidence);
+});
+
+test('detects an ally marker from its blue ring, dark weapon shape, and white direction pointer', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 105);
+  const paint = (x, y, color) => {
+    const at = (y * width + x) * 3;
+    frame[at] = color[0]; frame[at + 1] = color[1]; frame[at + 2] = color[2];
+  };
+  const center = { x: 360, y: 320 };
+  for (let y = center.y - 24; y <= center.y + 24; y += 1) {
+    for (let x = center.x - 24; x <= center.x + 24; x += 1) {
+      const distance = Math.hypot(x - center.x, y - center.y);
+      if (distance <= 12) paint(x, y, x < center.x - 8 ? [25, 25, 30] : [25, 35, 175]);
+      else if (distance >= 16 && distance <= 22) paint(x, y, [22, 30, 165]);
+    }
+  }
+  for (let y = center.y - 5; y <= center.y + 5; y += 1) {
+    for (let x = center.x + 24; x <= center.x + 34; x += 1) paint(x, y, [225, 225, 225]);
+  }
+  const allies = detectMapAllies(frame, width, height);
+  assert.equal(allies.length, 1);
+  assert.ok(Math.abs(allies[0].screenX - center.x) <= 3);
+  assert.ok(Math.abs(allies[0].screenY - center.y) <= 3);
+  assert.equal(allies[0].directionDegrees, 0);
+});
+
+test('removes repeated static map icons and predicts an ally from the observed facing direction', () => {
+  const staticMarker = { x: 150, y: 850, directionDegrees: 0, confidence: 0.7, evidence: { innerWhiteRatio: 0.22 } };
+  const samples = [10, 20, 30].map((time, index) => ({
+    time,
+    neutralRatio: 0.48,
+    mapUi: { visible: true },
+    allies: [staticMarker, { x: 300 + index * 60, y: 600 - index * 20, directionDegrees: 330, confidence: 0.75, evidence: { innerWhiteRatio: 0.08 } }],
+  }));
+  const tracks = detectAllyTracks(samples);
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].frames.length, 3);
+  const predictions = buildEntityPredictions(tracks);
+  assert.equal(predictions.length, 3);
+  assert.equal(predictions[0].team, 'ally');
+  assert.ok(predictions[0].frames.at(-1).x > predictions[0].frames[0].x);
 });
 
 test('removes only human-verified false death windows', () => {
