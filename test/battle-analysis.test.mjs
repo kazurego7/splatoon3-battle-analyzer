@@ -5,6 +5,7 @@ import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
 import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
+import { buildDeathCameraDetections } from '../src/perception-analysis.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -255,4 +256,16 @@ test('uses earlier respawn evidence when the HUD cross appears after a map scree
   assert.equal(death.time, 48.5);
   assert.equal(death.evidence.timing.timestampSource, 'respawn-ui-fallback');
   assert.equal(death.evidence.timing.respawnUiDelay, 0);
+});
+
+test('creates a bounded death-camera focus candidate only when respawn evidence confirms the window', () => {
+  const detections = buildDeathCameraDetections([
+    { id: 'death-1', time: 30, confidence: 0.95, evidence: { timing: { respawnUiDetectedAt: 32 } } },
+    { id: 'death-2', time: 60, confidence: 0.7, evidence: { timing: { respawnUiDetectedAt: null } } },
+  ]);
+  assert.equal(detections.length, 1);
+  assert.equal(detections[0].kind, 'death-camera-focus-candidate');
+  assert.equal(detections[0].weapon, null);
+  assert.equal(detections[0].evidence.limitation, 'focus-area-not-object-bounding-box');
+  assert.deepEqual(detections[0].frames[0].slice(1), [0.22, 0.17, 0.56, 0.68]);
 });

@@ -10,6 +10,7 @@ import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from '
 import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
+import { buildDeathCameraDetections } from './perception-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -295,6 +296,7 @@ export class Pipeline {
       }
       const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayEnd });
       const deaths = applyVerifiedDeathWindows(attachRespawnEvidence(hudDeaths, respawnRuns), verifiedMatch);
+      const detections = buildDeathCameraDetections(deaths);
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
       const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
       let gameCountSamples;
@@ -365,7 +367,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 10,
+        version: 11,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -388,6 +390,7 @@ export class Pipeline {
           },
         },
         stageMap,
+        detections,
         playerRoute,
         spatial: {
           observations: spatialObservations,
@@ -405,6 +408,7 @@ export class Pipeline {
           playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
+          videoEnemies: detections.length ? 'observed-death-camera-focus-candidates' : 'unavailable-no-confirmed-enemy-focus-window',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
           gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },
