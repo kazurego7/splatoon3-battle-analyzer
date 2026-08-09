@@ -108,7 +108,9 @@ export function detectPlayerCounts(samples, { gameplayStart = 10, gameplayEnd = 
   return timeline;
 }
 
-function candidateRuns(samples, maxGap = 5) {
+// Samples are 0.25 seconds apart. Tolerate one missed frame, but never bridge
+// multi-second gaps: special-active icon flashes can resemble a gray cross.
+function candidateRuns(samples, maxGap = 0.5) {
   const runs = [];
   for (const sample of samples.filter(isCross)) {
     const previous = runs.at(-1);

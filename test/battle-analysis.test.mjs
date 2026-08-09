@@ -28,6 +28,15 @@ test('detects HUD cross runs and collapses map-screen duplicates', () => {
   assert.equal(deaths[1].end, 46);
 });
 
+test('rejects intermittent cross-like flashes while the player remains alive', () => {
+  const samples = [];
+  for (let time = 0; time <= 45; time += 0.25) {
+    const flash = time === 30 || (time >= 30.75 && time <= 31);
+    samples.push(sample(time, flash ? 'cross' : 'alive'));
+  }
+  assert.deepEqual(detectSelfDeaths(samples, { duration: 45, gameplayEnd: 40 }), []);
+});
+
 function battleHudSample(time, teamDead = 1, enemyDead = 0, timerVisible = true) {
   const icon = dead => sample(time, dead ? 'cross' : 'unknown');
   return {
