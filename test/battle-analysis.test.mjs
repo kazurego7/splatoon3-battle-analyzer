@@ -5,7 +5,7 @@ import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
 import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
-import { buildDeathCameraDetections } from '../src/perception-analysis.mjs';
+import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
@@ -268,4 +268,33 @@ test('creates a bounded death-camera focus candidate only when respawn evidence 
   assert.equal(detections[0].weapon, null);
   assert.equal(detections[0].evidence.limitation, 'focus-area-not-object-bounding-box');
   assert.deepEqual(detections[0].frames[0].slice(1), [0.22, 0.17, 0.56, 0.68]);
+});
+
+test('requires a moving enemy-color candidate in consecutive frames', () => {
+  const width = 480;
+  const height = 270;
+  const blank = Buffer.alloc(width * height * 3, 20);
+  const orangeFrame = offset => {
+    const frame = Buffer.from(blank);
+    for (let y = 95; y < 145; y += 1) {
+      for (let x = 190 + offset; x < 218 + offset; x += 1) {
+        const at = (y * width + x) * 3;
+        frame[at] = 220;
+        frame[at + 1] = 105;
+        frame[at + 2] = 35;
+      }
+    }
+    return frame;
+  };
+  const first = orangeFrame(0);
+  const second = orangeFrame(9);
+  const samples = [
+    analyzeEnemyColorFrame(first, blank, width, height, 1),
+    analyzeEnemyColorFrame(second, first, width, height, 1.5),
+  ];
+  const detections = detectEnemyColorMotionRuns(samples, [{ id: 'death-1', time: 2 }]);
+  assert.equal(detections.length, 1);
+  assert.equal(detections[0].kind, 'enemy-color-motion-candidate');
+  assert.equal(detections[0].frames.length, 2);
+  assert.equal(detectEnemyColorMotionRuns(samples.slice(0, 1), [{ id: 'death-1', time: 2 }]).length, 0);
 });

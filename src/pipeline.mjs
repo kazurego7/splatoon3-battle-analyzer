@@ -10,7 +10,7 @@ import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from '
 import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
-import { buildDeathCameraDetections } from './perception-analysis.mjs';
+import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -296,7 +296,30 @@ export class Pipeline {
       }
       const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayEnd });
       const deaths = applyVerifiedDeathWindows(attachRespawnEvidence(hudDeaths, respawnRuns), verifiedMatch);
-      const detections = buildDeathCameraDetections(deaths);
+      const perceptionCache = path.join(workDir, `perception-match-${String(match.number).padStart(2, '0')}.json`);
+      let perceptionSamples;
+      try {
+        const cached = JSON.parse(await fs.readFile(perceptionCache, 'utf8'));
+        if (cached.version !== 1 || !cached.samples?.length) throw new Error('古い映像認識キャッシュ');
+        perceptionSamples = cached.samples;
+      } catch {
+        let previousPerceptionFrame = null;
+        perceptionSamples = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+          interval: 0.5,
+          width: 480,
+          height: 270,
+          onFrame: (frame, width, height, time) => {
+            const result = analyzeEnemyColorFrame(frame, previousPerceptionFrame, width, height, time);
+            previousPerceptionFrame = frame;
+            return result;
+          },
+        });
+        await fs.writeFile(perceptionCache, `${JSON.stringify({ version: 1, samples: perceptionSamples })}\n`);
+      }
+      const detections = [
+        ...buildDeathCameraDetections(deaths),
+        ...detectEnemyColorMotionRuns(perceptionSamples, deaths),
+      ].sort((left, right) => left.frames[0][0] - right.frames[0][0]);
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
       const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
       let gameCountSamples;
@@ -367,7 +390,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 11,
+        version: 12,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -408,7 +431,9 @@ export class Pipeline {
           playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
-          videoEnemies: detections.length ? 'observed-death-camera-focus-candidates' : 'unavailable-no-confirmed-enemy-focus-window',
+          videoEnemies: detections.some(item => item.kind === 'enemy-color-motion-candidate')
+            ? 'predicted-color-shape-motion-candidates-near-self-deaths'
+            : detections.length ? 'observed-death-camera-focus-candidates' : 'unavailable-no-grounded-enemy-candidate-window',
           stageMap: stageMap ? 'automatic-observed-map-screen' : 'unavailable-map-screen-not-found',
           gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },
