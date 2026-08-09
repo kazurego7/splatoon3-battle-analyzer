@@ -115,7 +115,7 @@ test('selects an observed map frame inside a death review window', () => {
   assert.equal(selected.source, 'observed-map-screen');
 });
 
-test('requires a team marker under the pink map cursor for self-position observations', () => {
+test('uses a separated pink map ring as self position and rejects teammate selection overlap', () => {
   const width = 960;
   const height = 540;
   const frame = Buffer.alloc(width * height * 3, 110);
@@ -132,16 +132,29 @@ test('requires a team marker under the pink map cursor for self-position observa
   assert.ok(cursor);
   assert.ok(Math.abs(cursor.screenX - center.x) <= 3);
   assert.ok(Math.abs(cursor.screenY - center.y) <= 3);
+  assert.ok(cursor.ringContrast >= 0.3);
 
-  const selfMarker = { ...cursor, screenX: cursor.screenX + 3, screenY: cursor.screenY + 2, x: cursor.x + 6, y: cursor.y + 4, directionDegrees: 315, confidence: 0.74 };
-  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor, allies: [selfMarker] };
+  const broadInk = Buffer.alloc(width * height * 3, 110);
+  for (let y = center.y - 25; y <= center.y + 25; y += 1) {
+    for (let x = center.x - 25; x <= center.x + 25; x += 1) {
+      const distance = Math.hypot(x - center.x, y - center.y);
+      if (distance < 8 || distance > 23) continue;
+      const at = (y * width + x) * 3;
+      broadInk[at] = 245; broadInk[at + 1] = 115; broadInk[at + 2] = 220;
+    }
+  }
+  assert.equal(detectMapCursor(broadInk, width, height), null);
+
+  const allyMarker = { ...cursor, screenX: cursor.screenX + 60, screenY: cursor.screenY + 40, x: cursor.x + 120, y: cursor.y + 80, directionDegrees: 315, confidence: 0.74 };
+  const base = { neutralRatio: 0.48, edgeRatio: 0.16, score: 0.42, mapUi: { visible: true }, cursor, allies: [allyMarker] };
   const observations = detectSpatialObservations([
     { ...base, time: 12 }, { ...base, time: 13 },
-    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 }, allies: [{ ...selfMarker, x: selfMarker.x + 80, y: selfMarker.y - 20 }] },
+    { ...base, time: 40, cursor: { ...cursor, x: cursor.x + 80, y: cursor.y - 20 }, allies: [{ ...allyMarker, x: allyMarker.x + 80, y: allyMarker.y - 20 }] },
   ]);
   assert.equal(observations.length, 2);
-  assert.equal(observations[0].source, 'observed-map-self-marker-under-cursor');
-  assert.equal(observations[0].directionDegrees, 315);
+  assert.equal(observations[0].source, 'observed-map-self-ring');
+  assert.equal(observations[0].x, cursor.x);
+  assert.equal(detectSpatialObservations([{ ...base, time: 50, allies: [{ ...allyMarker, screenX: cursor.screenX + 6, screenY: cursor.screenY + 4 }] }]).length, 0);
 });
 
 test('separates observed route anchors, inferred gaps, and short predictions', () => {

@@ -14,11 +14,18 @@ function isCursorPink(frame, width, x, y) {
 
 const ringOffsets = [];
 const innerOffsets = [];
+const cursorOuterOffsets = [];
 for (let y = -14; y <= 14; y += 2) {
   for (let x = -14; x <= 14; x += 2) {
     const distance = Math.hypot(x, y);
     if (distance >= 8 && distance <= 13) ringOffsets.push([x, y]);
     else if (distance <= 6) innerOffsets.push([x, y]);
+  }
+}
+for (let y = -24; y <= 24; y += 2) {
+  for (let x = -24; x <= 24; x += 2) {
+    const distance = Math.hypot(x, y);
+    if (distance >= 17 && distance <= 23) cursorOuterOffsets.push([x, y]);
   }
 }
 
@@ -145,6 +152,7 @@ export function detectMapCursor(frame, width, height) {
     for (let x = left; x < right; x += 3) {
       let ringHits = 0;
       let innerHits = 0;
+      let outerHits = 0;
       for (const [offsetX, offsetY] of ringOffsets) {
         if (isCursorPink(frame, width, x + offsetX, y + offsetY)) ringHits += 1;
       }
@@ -153,8 +161,15 @@ export function detectMapCursor(frame, width, height) {
       }
       const ringRatio = ringHits / ringOffsets.length;
       const innerRatio = innerHits / innerOffsets.length;
-      const score = ringRatio - innerRatio * 0.7;
-      if (!best || score > best.score) best = { x, y, score, ringRatio, innerRatio };
+      if (ringRatio < 0.35) continue;
+      for (const [offsetX, offsetY] of cursorOuterOffsets) {
+        if (isCursorPink(frame, width, x + offsetX, y + offsetY)) outerHits += 1;
+      }
+      const outerRatio = outerHits / cursorOuterOffsets.length;
+      const ringContrast = ringRatio - outerRatio;
+      if (ringContrast < 0.3) continue;
+      const score = ringContrast - innerRatio * 0.7;
+      if (!best || score > best.score) best = { x, y, score, ringRatio, innerRatio, outerRatio };
     }
   }
   if (!best || best.score < 0.4 || best.ringRatio < 0.42) return null;
@@ -165,6 +180,10 @@ export function detectMapCursor(frame, width, height) {
     ...position,
     confidence: Number(clamp(0.42 + (best.score - 0.4) * 1.9, 0.42, 0.94).toFixed(3)),
     score: Number(best.score.toFixed(4)),
+    ringRatio: Number(best.ringRatio.toFixed(4)),
+    innerRatio: Number(best.innerRatio.toFixed(4)),
+    outerRatio: Number(best.outerRatio.toFixed(4)),
+    ringContrast: Number((best.ringRatio - best.outerRatio).toFixed(4)),
   };
 }
 
@@ -288,34 +307,36 @@ export function detectSpatialObservations(samples) {
       .filter(sample => sample.neutralRatio >= Math.max(0.36, peakNeutral - 0.05)
         && sample.score >= 0.32 && sample.cursor?.confidence >= 0.42)
       .map(sample => {
-        const marker = (sample.allies || [])
-          .map(item => ({ item, distance: Math.hypot(item.screenX - sample.cursor.screenX, item.screenY - sample.cursor.screenY) }))
-          .filter(item => item.distance <= 34)
-          .sort((left, right) => left.distance - right.distance || right.item.confidence - left.item.confidence)[0];
-        return marker ? { sample, marker: marker.item, distance: marker.distance } : null;
+        const nearestAllyDistance = (sample.allies || []).reduce(
+          (nearest, item) => Math.min(nearest, Math.hypot(item.screenX - sample.cursor.screenX, item.screenY - sample.cursor.screenY)),
+          Number.POSITIVE_INFINITY,
+        );
+        return nearestAllyDistance <= 18 ? null : { sample, nearestAllyDistance };
       })
       .filter(Boolean)
-      .sort((left, right) => left.distance - right.distance || right.marker.confidence - left.marker.confidence)[0];
+      .sort((left, right) => right.sample.score - left.sample.score || left.sample.time - right.sample.time)[0];
     if (!initial) return [];
-    const { sample, marker, distance } = initial;
-    const confidence = Math.min(0.86, marker.confidence * 0.58 + sample.cursor.confidence * 0.22 + Math.min(0.12, run.length * 0.03));
+    const { sample, nearestAllyDistance } = initial;
+    const confidence = Math.min(0.78, sample.cursor.confidence * 0.72 + Math.min(0.14, run.length * 0.03));
     return {
       id: '',
       time: sample.time,
-      x: marker.x,
-      y: marker.y,
-      directionDegrees: marker.directionDegrees,
+      x: sample.cursor.x,
+      y: sample.cursor.y,
       team: 'self',
-      source: 'observed-map-self-marker-under-cursor',
+      source: 'observed-map-self-ring',
       confidence: Number(confidence.toFixed(3)),
       evidence: {
         mapScore: sample.score,
         cursorScore: sample.cursor.score,
-        markerConfidence: marker.confidence,
-        cursorMarkerDistance: Number(distance.toFixed(2)),
-        screen: { x: marker.screenX, y: marker.screenY },
+        ringRatio: sample.cursor.ringRatio,
+        innerRatio: sample.cursor.innerRatio,
+        outerRatio: sample.cursor.outerRatio,
+        ringContrast: sample.cursor.ringContrast,
+        nearestAllyDistance: Number.isFinite(nearestAllyDistance) ? Number(nearestAllyDistance.toFixed(2)) : null,
+        screen: { x: sample.cursor.screenX, y: sample.cursor.screenY },
         observedUntil: run.at(-1).time,
-        limitation: 'self-marker-assumed-when-map-cursor-overlaps-team-marker',
+        limitation: 'pink-self-ring-rejected-when-overlapping-teammate-super-jump-target',
       },
     };
   }).map((observation, index) => ({ ...observation, id: `self-map-${index + 1}` }));
@@ -398,9 +419,7 @@ export function detectAllyTracks(samples) {
     const usable = run.filter(sample => sample.neutralRatio >= 0.36 && sample.allies?.length);
     if (!usable.length) return [];
     const sample = [...usable].sort((left, right) => right.allies.length - left.allies.length || left.time - right.time)[0];
-    return sample.allies
-      .filter(marker => !sample.cursor || Math.hypot(marker.screenX - sample.cursor.screenX, marker.screenY - sample.cursor.screenY) > 34)
-      .map(marker => ({
+    return sample.allies.map(marker => ({
       time: sample.time,
       x: marker.x,
       y: marker.y,
@@ -408,7 +427,7 @@ export function detectAllyTracks(samples) {
       confidence: marker.confidence,
       source: 'observed-map-ally-marker',
       evidence: { ...marker.evidence, screen: { x: marker.screenX, y: marker.screenY }, observedUntil: run.at(-1).time },
-      }));
+    }));
   });
 
   const stationaryClusters = [];
