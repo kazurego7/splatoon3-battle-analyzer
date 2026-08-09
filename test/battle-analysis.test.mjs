@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
 import { stabilizeGameCount } from '../src/game-count-vision.mjs';
 import { findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
+import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, selectObservedMapFrame } from '../src/map-analysis.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
 
@@ -297,4 +297,21 @@ test('requires a moving enemy-color candidate in consecutive frames', () => {
   assert.equal(detections[0].kind, 'enemy-color-motion-candidate');
   assert.equal(detections[0].frames.length, 2);
   assert.equal(detectEnemyColorMotionRuns(samples.slice(0, 1), [{ id: 'death-1', time: 2 }]).length, 0);
+});
+
+test('projects a video enemy candidate as an explicitly uncertain map prediction', () => {
+  const route = Array.from({ length: 21 }, (_, time) => ({ time, x: 300 + time * 5, y: 500, confidence: 0.7 }));
+  const detections = [{
+    id: 'enemy-color-motion-1', kind: 'enemy-color-motion-candidate', confidence: 0.6,
+    frames: [[10, 0.45, 0.3, 0.1, 0.2], [10.5, 0.5, 0.3, 0.1, 0.22]],
+  }];
+  const predictions = buildEnemySightPredictions(detections, route);
+  assert.equal(predictions.length, 1);
+  assert.equal(predictions[0].team, 'enemy');
+  assert.equal(predictions[0].source, 'predicted-from-video-candidate-and-self-route-heading');
+  assert.equal(predictions[0].frames.length, 5);
+  assert.equal(predictions[0].frames[0].radius, 85);
+  assert.ok(predictions[0].confidence <= 0.28);
+  assert.equal(predictions[0].evidence.routeHeadingAssumption, true);
+  assert.deepEqual(buildEnemySightPredictions(detections, route.slice(0, 5)), []);
 });

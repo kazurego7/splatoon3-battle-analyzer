@@ -494,3 +494,87 @@ export function buildEnemyThreatZones(deaths, selfObservations, { seconds = 6, m
   }
   return zones;
 }
+
+function routeStateAt(route, time) {
+  if (!route.length || time < route[0].time || time > route.at(-1).time) return null;
+  const rightIndex = route.findIndex(point => point.time >= time);
+  const right = route[Math.max(0, rightIndex)];
+  const left = route[Math.max(0, rightIndex - 1)] || right;
+  const duration = Math.max(0.001, right.time - left.time);
+  const ratio = clamp((time - left.time) / duration, 0, 1);
+  return {
+    x: left.x + (right.x - left.x) * ratio,
+    y: left.y + (right.y - left.y) * ratio,
+    confidence: Math.min(left.confidence ?? 0.2, right.confidence ?? 0.2),
+  };
+}
+
+function routeHeadingAt(route, time) {
+  const nearby = route.filter(point => Math.abs(point.time - time) <= 8);
+  if (nearby.length < 2) return null;
+  const first = nearby[0];
+  const last = nearby.at(-1);
+  if (Math.hypot(last.x - first.x, last.y - first.y) < 8) return null;
+  return Math.atan2(last.y - first.y, last.x - first.x);
+}
+
+export function buildEnemySightPredictions(detections, playerRoute, { seconds = 4 } = {}) {
+  const predictions = [];
+  for (const detection of detections.filter(item => item.kind === 'enemy-color-motion-candidate')) {
+    const projected = detection.frames.flatMap(frame => {
+      const [time, x, _y, width, height] = frame;
+      const self = routeStateAt(playerRoute, time);
+      const heading = routeHeadingAt(playerRoute, time);
+      if (!self || heading == null) return [];
+      const screenCenterX = x + width / 2;
+      const bearingOffset = (screenCenterX - 0.5) * (Math.PI / 2);
+      const distance = clamp(22 / Math.max(0.04, height), 55, 210);
+      const bearing = heading + bearingOffset;
+      return [{
+        time,
+        x: clamp(self.x + Math.cos(bearing) * distance, 0, 1000),
+        y: clamp(self.y + Math.sin(bearing) * distance, 0, 1000),
+        confidence: Math.min(0.28, detection.confidence * self.confidence * 0.48),
+      }];
+    });
+    if (!projected.length) continue;
+    const anchor = projected.at(-1);
+    const previous = projected.length > 1 ? projected.at(-2) : null;
+    let velocityX = 0;
+    let velocityY = 0;
+    if (previous) {
+      const elapsed = Math.max(0.5, anchor.time - previous.time);
+      velocityX = (anchor.x - previous.x) / elapsed;
+      velocityY = (anchor.y - previous.y) / elapsed;
+      const speed = Math.hypot(velocityX, velocityY);
+      if (speed > 18) {
+        velocityX *= 18 / speed;
+        velocityY *= 18 / speed;
+      }
+    }
+    const frames = Array.from({ length: seconds + 1 }, (_, offset) => ({
+      time: anchor.time + offset,
+      x: Number(clamp(anchor.x + velocityX * offset, 0, 1000).toFixed(1)),
+      y: Number(clamp(anchor.y + velocityY * offset, 0, 1000).toFixed(1)),
+      radius: 85 + offset * 28,
+      confidence: Number((anchor.confidence * Math.exp(-offset / 2.4)).toFixed(3)),
+    }));
+    predictions.push({
+      id: `${detection.id}-map-prediction`,
+      entityId: detection.id,
+      team: 'enemy',
+      observedAt: anchor.time,
+      expiresAt: anchor.time + seconds,
+      source: 'predicted-from-video-candidate-and-self-route-heading',
+      frames,
+      confidence: Number(anchor.confidence.toFixed(3)),
+      evidence: {
+        detectionId: detection.id,
+        routeHeadingAssumption: true,
+        horizontalFieldOfViewDegrees: 90,
+        limitation: 'camera-heading-approximated-by-self-route-direction',
+      },
+    });
+  }
+  return predictions;
+}

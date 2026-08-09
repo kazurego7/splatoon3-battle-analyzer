@@ -7,7 +7,7 @@ import { analysisEvents, classifySamples, detectMatchSegments } from './segmenta
 import { detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
 import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
-import { analyzeMapCandidate, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
+import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
@@ -359,6 +359,7 @@ export class Pipeline {
       const allyTracks = detectAllyTracks(mapCandidates);
       const allyPredictions = buildEntityPredictions(allyTracks);
       const enemyThreatZones = buildEnemyThreatZones(deaths, spatialObservations);
+      const enemySightPredictions = buildEnemySightPredictions(detections, playerRoute);
       let stageMap = null;
       if (observedMap) {
         const mapName = `match-${String(match.number).padStart(2, '0')}-map.jpg`;
@@ -390,7 +391,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 12,
+        version: 13,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -418,7 +419,7 @@ export class Pipeline {
         spatial: {
           observations: spatialObservations,
           entityTracks: allyTracks,
-          predictions: [...spatialPredictions, ...allyPredictions].sort((left, right) => left.observedAt - right.observedAt),
+          predictions: [...spatialPredictions, ...allyPredictions, ...enemySightPredictions].sort((left, right) => left.observedAt - right.observedAt),
           threatZones: enemyThreatZones,
           coordinateSpace: { width: 1000, height: 1000 },
           policy: 'observed-map-information-only',
@@ -431,6 +432,7 @@ export class Pipeline {
           playerRoute: playerRoute.length ? 'automatic-observed-and-inferred-map-route' : 'unavailable-no-map-position-observations',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
+          enemyRoutes: enemySightPredictions.length ? 'predicted-from-video-candidate-and-self-route-heading' : 'unavailable-no-overlapping-video-candidate-and-self-route',
           videoEnemies: detections.some(item => item.kind === 'enemy-color-motion-candidate')
             ? 'predicted-color-shape-motion-candidates-near-self-deaths'
             : detections.length ? 'observed-death-camera-focus-candidates' : 'unavailable-no-grounded-enemy-candidate-window',
