@@ -1,11 +1,11 @@
 import { resolveOutcomeLabel } from './outcome.js';
-import { deathAnalysisEndpoint, deathPhaseLabels, deathSeekTime, deathSequenceFor } from './death-analysis-ui.js';
+import { deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from './death-analysis-ui.js';
 
 const byId = id => document.getElementById(id);
 const elements = {
   recordingList:byId('recording-list'), recordingCount:byId('recording-count'), empty:byId('empty-state'), recordingView:byId('recording-view'), reviewView:byId('review-view'),
   selectedTitle:byId('selected-title'), selectedStatus:byId('selected-status'), selectedProgress:byId('selected-progress'), error:byId('recording-error'), matchList:byId('match-list'),
-  video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), eventCount:byId('event-count'), deathDetail:byId('death-detail'), deathDetailEmpty:byId('death-detail-empty'), deathDetailContent:byId('death-detail-content'), deathDetailTime:byId('death-detail-time'), deathDetailTitle:byId('death-detail-title'), deathDetailSituation:byId('death-detail-situation'), deathDetailCause:byId('death-detail-cause'), deathSequenceList:byId('death-sequence-list'), deathTurningPoint:byId('death-turning-point'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
+  video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), eventCount:byId('event-count'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
   timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), playerCountStatus:byId('player-count-status'), gameCountStatus:byId('game-count-status'),
   chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHit:byId('chart-hit'),
   capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'), briefingRouteLayer:byId('briefing-route-layer'),
@@ -241,31 +241,20 @@ function renderSpatialState(time) {
   elements.mapClock.textContent=formatTime(time);
 }
 
-function deathCopy(event) {
-  const players=playerCountAt(event.time-.25),situation=[];
-  if(players){const balance=players.difference>0?`${players.difference}枚有利`:players.difference<0?`${Math.abs(players.difference)}枚不利`:'人数は五分';situation.push(`デス直前は自軍${players.teamAlive}人・相手${players.enemyAlive}人（${balance}）`);}
-  return {
-    title:event.title==='自分がデス'?'原因未分析のデス':event.title,
-    situation:event.situation||(situation.length?`${situation.join('。')}。`:'未分析'),
-    cause:event.cause||'未分析',
-  };
-}
-function selectDeathEvent(event,key,{seek=true}={}) {
-  const death=deathCopy(event);selectedDeathKey=key;elements.deathDetailEmpty.hidden=true;elements.deathDetailContent.hidden=false;elements.deathDetailTime.textContent=formatTime(event.time);elements.deathDetailTitle.textContent=death.title;elements.deathDetailSituation.textContent=death.situation;elements.deathDetailCause.textContent=death.cause;
-  const sequence=deathSequenceFor(currentAnalysis,event),turningPoint=event.turningPoint||currentAnalysis.deathAnalysis?.sequences?.find(item=>item.id===event.id)?.turningPoint;
-  const keySteps=[];if(sequence.length)keySteps.push({label:'起点',...sequence[0]});if(turningPoint)keySteps.push({label:'分岐点',phase:'commitment',offset:turningPoint.offset,observation:turningPoint.action,interpretation:turningPoint.whyItMattered,isTurning:true});if(sequence.length>1){const last=sequence.at(-1);keySteps.push({label:'結果',...last});}
-  elements.deathSequenceList.replaceChildren(...keySteps.map(step=>{const button=document.createElement('button');button.type='button';button.className=`death-sequence-step${step.isTurning?' is-turning':''}`;const head=document.createElement('span');head.className='death-sequence-step-heading';const phase=document.createElement('em');phase.textContent=step.label||deathPhaseLabels[step.phase]||step.phase;const offset=document.createElement('strong');offset.textContent=`${step.offset>0?'+':''}${step.offset}秒`;head.append(phase,offset);const observation=document.createElement('span');observation.textContent=step.observation;const interpretation=document.createElement('small');interpretation.textContent=step.interpretation;button.append(head,observation,interpretation);button.addEventListener('click',()=>{elements.video.currentTime=deathSeekTime(event,step.offset,currentAnalysis.media.duration);updatePlaybackUi();});return button;}));elements.deathTurningPoint.hidden=true;
+function deathTitle(event) { return event.title==='自分がデス'?'原因未分析のデス':event.title; }
+function selectDeathEvent(event,key) {
+  selectedDeathKey=key;
   [...elements.eventList.children].forEach(button=>{const active=button.dataset.deathKey===key;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
-  if(seek){elements.video.currentTime=deathSeekTime(event,-8,currentAnalysis.media.duration);updatePlaybackUi();}
+  elements.video.currentTime=deathSeekTime(event,-8,currentAnalysis.media.duration);updatePlaybackUi();
 }
 function renderEvents(preferredKey=null) {
   const deaths=currentAnalysis.events.filter(event=>event.type==='death'),keys=deaths.map((event,index)=>String(event.id||`${event.time}-${index}`));elements.eventCount.textContent=`${deaths.length}件`;
-  selectedDeathKey=null;elements.deathDetailEmpty.hidden=false;elements.deathDetailContent.hidden=true;
-  elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=deathCopy(event).title;const indexLabel=document.createElement('span');indexLabel.className='death-index';indexLabel.textContent=`D${index+1}`;const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const title=document.createElement('strong');title.textContent=deathCopy(event).title;button.append(indexLabel,time,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
-  const preferredIndex=preferredKey==null?(deaths.length?0:-1):keys.indexOf(preferredKey);if(preferredIndex>=0)selectDeathEvent(deaths[preferredIndex],keys[preferredIndex],{seek:false});
+  selectedDeathKey=preferredKey&&keys.includes(preferredKey)?preferredKey:null;
+  elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=`${formatTime(event.time)} ${deathTitle(event)}`;button.setAttribute('aria-pressed',String(key===selectedDeathKey));button.classList.toggle('active',key===selectedDeathKey);const meta=document.createElement('span');meta.className='death-event-meta';const indexLabel=document.createElement('span');indexLabel.className='death-index';indexLabel.textContent=`D${index+1}`;const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);meta.append(indexLabel,time);const title=document.createElement('strong');title.textContent=deathTitle(event);button.append(meta,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
 }
 function renderDeathAnalysisSummary() {
   const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[];elements.deathAiButton.disabled=!deaths.length;elements.deathAiButton.textContent=analysis?'再分析':'AI分析';elements.deathReportButton.disabled=!analysis;elements.deathReportButton.title=analysis?'失敗パターンを別ウィンドウで開く':'先にAI分析を実行してください';
+  elements.deathReportDigest.textContent=deathReportDigest(currentAnalysis);
   if(!analysis){elements.deathAiStatus.textContent=deaths.length?'AI分析で行動の分岐点を抽出できます。':'分析できるデスがありません。';return;}
   const patternCount=analysis.patterns?.length||0;elements.deathAiStatus.textContent=`AI分析済み・反復パターン ${patternCount}件`;
 }

@@ -1,20 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deathAnalysisEndpoint, deathSeekTime, deathSequenceFor } from '../public/death-analysis-ui.js';
+import { deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from '../public/death-analysis-ui.js';
 
 test('death list keeps the existing eight-second pre-roll', () => {
   assert.equal(deathSeekTime({ time: 38.25 }), 30.25);
   assert.equal(deathSeekTime({ time: 3 }), 0);
 });
 
-test('sequence steps seek relative to the death and stay within the video', () => {
+test('death seek offsets stay within the video', () => {
   assert.equal(deathSeekTime({ time: 38.25 }, -2), 36.25);
   assert.equal(deathSeekTime({ time: 38.25 }, 1, 38.5), 38.5);
 });
 
-test('sequence and endpoint helpers support stored and root analysis data', () => {
-  const stored = [{ offset: -8 }], root = [{ offset: -4 }];
-  assert.equal(deathSequenceFor({ deathAnalysis: { sequences: [{ id: 'd1', sequence: root }] } }, { id: 'd1', sequence: stored }), stored);
-  assert.equal(deathSequenceFor({ deathAnalysis: { sequences: [{ id: 'd1', sequence: root }] } }, { id: 'd1' }), root);
+test('death analysis endpoint removes query parameters', () => {
   assert.equal(deathAnalysisEndpoint('/api/analysis/r1/match-01.json?x=1'), '/api/analysis/r1/match-01.json/ai-death-sequence');
+});
+
+test('report digest presents at most two concise failure patterns', () => {
+  const digest = deathReportDigest({ deathAnalysis: { patterns: [
+    { title: '退路不足', summary: '敵インクへ出て戻れなくなる' },
+    { title: '人数不利で前進', summary: '味方の復帰を待たずに接敵する。' },
+    { title: '表示しない3件目', summary: '長すぎる' },
+  ] } });
+  assert.equal(digest, '「退路不足」：敵インクへ出て戻れなくなる。 「人数不利で前進」：味方の復帰を待たずに接敵する。');
+  assert.equal(deathReportDigest({ deathAnalysis: { patterns: [{ title: '単独パターン', summary: '一文目。二文目。三文目。' }] } }), '「単独パターン」：一文目。二文目。');
+  assert.equal(deathReportDigest({ deathAnalysis: { patterns: [] } }), 'この試合では、2回以上繰り返した失敗パターンは見つかりませんでした。');
+  assert.match(deathReportDigest({}), /AI分析を実行/);
 });
