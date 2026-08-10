@@ -31,6 +31,8 @@
   - `patterns[]`: 2件以上のデスで共通する `trigger` → `repeatedAction` → `consequence`
   - `patterns[].deathIds`: パターンの根拠となるデスID。最低2件
   - `patterns[].reviewFocus`: 映像を見返す際の具体的な注目点
+  - `patterns[].clips[]`: パターン動画で順番に再生する根拠範囲。動画を切り抜かず、デス時刻に対する `startOffset` / `endOffset` として保持する
+  - 1パターン内で同じデスに複数範囲を持てる。各 `deathIds` には最低1範囲が必要
 - `series[].motion`: 連続フレームの画面変化量
 - `series[].hud`: HUDらしさのスコア
 - `gameFlow.deaths.self`: 自分のデス開始秒と、次に生存表示を確認するまでの秒数
@@ -110,4 +112,4 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン25です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン26です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

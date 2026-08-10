@@ -11,7 +11,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "title", "summary", "deathIds", "trigger", "repeatedAction", "consequence", "reviewFocus"],
+        "required": ["id", "title", "summary", "deathIds", "trigger", "repeatedAction", "consequence", "reviewFocus", "clips"],
         "properties": {
           "id": { "type": "string", "minLength": 1, "maxLength": 80 },
           "title": { "type": "string", "minLength": 1, "maxLength": 120 },
@@ -24,7 +24,24 @@
           "trigger": { "type": "string", "minLength": 1, "maxLength": 300 },
           "repeatedAction": { "type": "string", "minLength": 1, "maxLength": 300 },
           "consequence": { "type": "string", "minLength": 1, "maxLength": 300 },
-          "reviewFocus": { "type": "string", "minLength": 1, "maxLength": 300 }
+          "reviewFocus": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "clips": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["deathId", "startOffset", "endOffset", "label", "reason"],
+              "properties": {
+                "deathId": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "startOffset": { "type": "number", "minimum": -12, "maximum": 0 },
+                "endOffset": { "type": "number", "minimum": -6, "maximum": 4 },
+                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "reason": { "type": "string", "minLength": 1, "maxLength": 300 }
+              }
+            }
+          }
         }
       }
     }

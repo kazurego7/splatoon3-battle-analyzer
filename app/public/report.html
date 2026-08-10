@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>失敗パターン分析レポート</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/report.css">
+</head>
+<body class="report-body">
+  <header class="report-header">
+    <div class="report-brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AI REVIEW</p><h1>失敗パターン分析レポート</h1></div></div>
+    <button type="button" onclick="window.close()">レポートを閉じる</button>
+  </header>
+  <main class="report-shell">
+    <section class="report-hero">
+      <div><p class="eyebrow">MATCH OVERVIEW</p><h2 id="report-title">分析レポート</h2></div>
+      <p id="report-summary">分析データを読み込んでいます…</p>
+      <div id="report-meta"></div>
+    </section>
+    <section id="pattern-reports" class="pattern-reports" aria-live="polite"></section>
+    <section id="report-empty" class="report-empty" hidden>
+      <h2>表示できる反復パターンがありません</h2>
+      <p>元の分析画面でAIシーケンス分析を実行してください。</p>
+    </section>
+  </main>
+  <script type="module" src="/report.js"></script>
+</body>
+</html>

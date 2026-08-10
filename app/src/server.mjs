@@ -186,7 +186,7 @@ const server = http.createServer(async (request, response) => {
           refresh: body.refresh === true,
           required: true,
         });
-        analysis.version = Math.max(25, Number(analysis.version) || 0);
+        analysis.version = Math.max(26, Number(analysis.version) || 0);
         analysis.events = result.deaths;
         analysis.deathAnalysis = result.analysis;
         analysis.capabilities = {

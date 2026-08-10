@@ -564,7 +564,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 25,
+        version: 26,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),

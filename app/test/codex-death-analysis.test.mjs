@@ -32,13 +32,26 @@ test('keeps only repeated patterns backed by two expected deaths', () => {
   const analysis = normalizeCodexPatterns({
     overallSummary: '前進後に退路を失う傾向。',
     patterns: [
-      { id: 'retreat', title: '退路不足', summary: '同じ流れ', deathIds: ['death-1', 'death-2'], trigger: '前進', repeatedAction: '深追い', consequence: '孤立', reviewFocus: '引き返せた地点' },
+      { id: 'retreat', title: '退路不足', summary: '同じ流れ', deathIds: ['death-1', 'death-2'], trigger: '前進', repeatedAction: '深追い', consequence: '孤立', reviewFocus: '引き返せた地点', clips: [
+        { deathId: 'death-1', startOffset: -8, endOffset: 1, label: '1回目', reason: '前進からデスまで' },
+        { deathId: 'death-2', startOffset: -6, endOffset: 1, label: '2回目', reason: '同じ前進を確認' },
+      ] },
       { id: 'single', title: '単発', summary: '一度だけ', deathIds: ['death-1'], trigger: '前進', repeatedAction: '深追い', consequence: '孤立', reviewFocus: '地点' },
       { id: 'unknown', title: '根拠外', summary: '不正', deathIds: ['death-1', 'other'], trigger: '前進', repeatedAction: '深追い', consequence: '孤立', reviewFocus: '地点' },
     ],
   }, new Set(['death-1', 'death-2']));
   assert.equal(analysis.overallSummary, '前進後に退路を失う傾向。');
   assert.deepEqual(analysis.patterns.map(pattern => pattern.id), ['retreat']);
+  assert.deepEqual(analysis.patterns[0].clips.map(clip => clip.deathId), ['death-1', 'death-2']);
+});
+
+test('rejects a repeated pattern when its clip ranges do not cover every death', () => {
+  const analysis = normalizeCodexPatterns({ overallSummary: '要約', patterns: [{
+    id: 'partial', title: '不完全', summary: '範囲不足', deathIds: ['death-1', 'death-2'],
+    trigger: '前進', repeatedAction: '深追い', consequence: '孤立', reviewFocus: '地点',
+    clips: [{ deathId: 'death-1', startOffset: -8, endOffset: 1, label: '1回目', reason: '片方だけ' }],
+  }] }, new Set(['death-1', 'death-2']));
+  assert.deepEqual(analysis.patterns, []);
 });
 
 test('does not generate AI analysis unless explicitly enabled or forced', async () => {
