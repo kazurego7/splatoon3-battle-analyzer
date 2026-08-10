@@ -256,6 +256,7 @@ function renderEvents(preferredKey=null) {
 }
 function renderDeathAnalysisSummary() {
   const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[],analysisUrl=currentMatch?.analysisUrl||'',state=deathAnalysisControlState({analysis,deathCount:deaths.length,pending:deathAnalysisJobs.has(analysisUrl),error:deathAnalysisErrors.get(analysisUrl)});elements.deathAiButton.hidden=!state.showAnalyze;elements.deathAiButton.disabled=state.analyzeDisabled;elements.deathAiButton.textContent=state.analyzeLabel;elements.deathReportButton.hidden=!state.showReport;elements.deathReportButton.disabled=!state.showReport;elements.deathReportButton.title=state.showReport?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=!state.status;elements.deathAiStatus.classList.toggle('error',state.statusIsError);elements.deathAiStatus.textContent=state.status;
+  elements.deathAiButton.closest('.death-report-digest').classList.toggle('awaiting-analysis',state.showAnalyze);
   elements.deathReportDigest.textContent=deathReportDigest(currentAnalysis);
   if(!analysis&&!deaths.length)elements.deathReportDigest.textContent='分析できるデスがありません。';
 }
@@ -287,8 +288,8 @@ function chartPointerState(event) {
   return { time, x:chartX(time) };
 }
 function renderChartHover(event) {
-  if(!currentAnalysis)return;const {time,x}=chartPointerState(event),game=gameCountAt(time),boxWidth=410,boxX=Math.max(chartBounds.left,Math.min(chartBounds.right-boxWidth,x-boxWidth/2)),line=svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-hover-line'}),background=svgElement('rect',{x:boxX,y:2,width:boxWidth,height:26,rx:8,class:'chart-hover-bg'}),label=svgElement('text',{x:boxX+boxWidth/2,y:19,'text-anchor':'middle',class:'chart-hover-text'});
-  label.textContent=game?`${formatTime(time)}｜自軍 ${game.teamCount}（ペナ ${game.teamPenalty||0}）｜相手 ${game.enemyCount}（ペナ ${game.enemyPenalty||0}）`:`${formatTime(time)}｜カウントデータなし`;elements.chartHover.replaceChildren(line,background,label);
+  if(!currentAnalysis)return;const chart=event.currentTarget.closest('svg'),{time,x}=chartPointerState(event),game=gameCountAt(time),boxWidth=410,boxX=Math.max(chartBounds.left,Math.min(chartBounds.right-boxWidth,x-boxWidth/2)),line=svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-hover-line'}),background=svgElement('rect',{x:boxX,y:0,width:boxWidth,height:24,rx:8,class:'chart-hover-bg'}),label=svgElement('text',{x:boxX+boxWidth/2,y:16,'text-anchor':'middle',class:'chart-hover-text'});
+  label.textContent=game?`${formatTime(time)}｜自軍 ${game.teamCount}（ペナ ${game.teamPenalty||0}）｜相手 ${game.enemyCount}（ペナ ${game.enemyPenalty||0}）`:`${formatTime(time)}｜カウントデータなし`;chart.classList.add('is-hovering');elements.chartHover.replaceChildren(line,background,label);
 }
 
 async function refresh(){try{const nextRecordings=await(await fetch('/api/recordings')).json(),changed=JSON.stringify(nextRecordings)!==JSON.stringify(recordings);recordings=nextRecordings;if(changed)renderRecordings();}catch(error){console.error(error);}}
@@ -298,7 +299,7 @@ elements.video.addEventListener('click',toggleVideoPlayback);elements.video.addE
 elements.deathAiButton.addEventListener('click',runDeathAiAnalysis);
 elements.deathReportButton.addEventListener('click',openDeathReport);
 document.addEventListener('keydown',event=>{if((event.key!=='ArrowLeft'&&event.key!=='ArrowRight')||elements.reviewView.hidden||elements.mapEditorModal.open)return;const editingTarget=event.target instanceof HTMLElement&&event.target.matches('input:not(#seek),textarea,[contenteditable="true"]');if(editingTarget)return;event.preventDefault();seekBySeconds(event.key==='ArrowLeft'?-1:1);});
-elements.chartHit.addEventListener('pointermove',renderChartHover);elements.chartHit.addEventListener('pointerleave',()=>elements.chartHover.replaceChildren());
+elements.chartHit.addEventListener('pointermove',renderChartHover);elements.chartHit.addEventListener('pointerleave',event=>{event.currentTarget.closest('svg').classList.remove('is-hovering');elements.chartHover.replaceChildren();});
 elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;elements.video.currentTime=chartPointerState(event).time;updatePlaybackUi();});
 elements.strongEditButton.addEventListener('click',()=>{closeMapEditors({restore:true});openMapEditor('有利なポジションを編集');elements.strongEditPanel.hidden=false;createStrongPosition();});
 elements.strongNewButton.addEventListener('click',createStrongPosition);
