@@ -38,12 +38,20 @@
 
         <div class="review-grid">
           <aside class="panel evidence-panel" aria-labelledby="advice-heading">
-            <div class="panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div><span id="event-count"></span></div>
+            <div class="panel-heading death-panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div><div class="death-analysis-actions"><span id="event-count"></span><button id="death-ai-button" type="button">AIシーケンス分析を実行</button></div></div>
+            <p id="death-ai-status" class="death-ai-status">デスを選ぶと8秒前へ移動します。AI分析は必要なときに実行できます。</p>
+            <section id="death-patterns" class="death-patterns" aria-label="繰り返している失敗パターン" hidden>
+              <strong>繰り返している失敗パターン</strong>
+              <p id="death-overall-summary"></p>
+              <div id="death-pattern-list"></div>
+            </section>
             <article id="death-detail" class="death-detail">
               <p id="death-detail-empty" class="death-detail-empty">一覧からデスを選択すると、そのデスの8秒前へ動画が移動し、詳しい状況と原因を表示します。</p>
               <div id="death-detail-content" aria-live="polite" hidden>
                 <div class="death-detail-heading"><span id="death-detail-time"></span><h3 id="death-detail-title"></h3></div>
                 <dl><div><dt>状況</dt><dd id="death-detail-situation"></dd></div><div><dt>原因</dt><dd id="death-detail-cause"></dd></div></dl>
+                <button id="death-turning-point" class="death-turning-point" type="button" hidden></button>
+                <section class="death-sequence"><h4>デスにつながった行動の流れ</h4><div id="death-sequence-list"></div></section>
               </div>
             </article>
             <div class="death-list-label">デス一覧</div>

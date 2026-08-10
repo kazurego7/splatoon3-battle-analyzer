@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overallSummary", "patterns"],
+  "properties": {
+    "overallSummary": { "type": "string", "minLength": 1, "maxLength": 800 },
+    "patterns": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "summary", "deathIds", "trigger", "repeatedAction", "consequence", "reviewFocus"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "deathIds": {
+            "type": "array",
+            "minItems": 2,
+            "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+          },
+          "trigger": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "repeatedAction": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "consequence": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "reviewFocus": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    }
+  }
+}

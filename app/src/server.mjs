@@ -4,12 +4,14 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Pipeline } from './pipeline.mjs';
 import { Store } from './store.mjs';
-import { ANALYSIS_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, THUMBNAIL_ROOT } from './paths.mjs';
+import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
+import { ANALYSIS_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
 
 const PORT = Number(process.env.PORT || 4310);
 const store = new Store();
 await store.load();
 const pipeline = new Pipeline(store);
+const runningDeathAnalyses = new Set();
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -158,6 +160,52 @@ const server = http.createServer(async (request, response) => {
         await fsp.writeFile(POSITION_PLANS_FILE, `${JSON.stringify(plans, null, 2)}\n`);
         json(response, 200, { stage, rule, plan });
         return;
+      }
+    }
+    if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'analysis' && parts[4] === 'ai-death-sequence') {
+      const recordingId = decodeURIComponent(parts[2] || '');
+      const analysisName = decodeURIComponent(parts[3] || '');
+      const recording = store.get(recordingId);
+      const match = recording?.matches?.find(item => path.basename(item.analysisUrl || '') === analysisName);
+      if (!recording || !match) return json(response, 404, { error: '試合の分析データが見つかりません' });
+      const jobKey = `${recordingId}/${analysisName}`;
+      if (runningDeathAnalyses.has(jobKey)) return json(response, 409, { error: 'この試合のAIシーケンス分析は実行中です' });
+      runningDeathAnalyses.add(jobKey);
+      try {
+        const body = await readJson(request);
+        const analysisPath = safeJoin(ANALYSIS_ROOT, [recordingId, analysisName]);
+        const analysis = JSON.parse(await fsp.readFile(analysisPath, 'utf8'));
+        const deaths = (analysis.events || []).filter(event => event.type === 'death');
+        if (!deaths.length) return json(response, 400, { error: '分析できるデスがありません' });
+        const result = await analyzeDeathSequencesWithCodex({
+          clipPath: safeJoin(MATCH_ROOT, [recordingId, match.fileName]),
+          deaths,
+          workDir: path.join(WORK_ROOT, recordingId),
+          matchNumber: match.number,
+          force: true,
+          refresh: body.refresh === true,
+          required: true,
+        });
+        analysis.version = Math.max(25, Number(analysis.version) || 0);
+        analysis.events = result.deaths;
+        analysis.deathAnalysis = result.analysis;
+        analysis.capabilities = {
+          ...(analysis.capabilities || {}),
+          deathExplanation: 'codex-vision-sequence',
+          deathSequenceAnalysis: 'codex-vision-sequence',
+        };
+        const temporaryPath = `${analysisPath}.tmp`;
+        await fsp.writeFile(temporaryPath, `${JSON.stringify(analysis, null, 2)}\n`, 'utf8');
+        await fsp.rename(temporaryPath, analysisPath);
+        response.setHeader('Cache-Control', 'no-store');
+        json(response, 200, analysis);
+        return;
+      } catch (error) {
+        console.error('AI death sequence analysis failed:', error);
+        json(response, /ログイン|login/i.test(error.message) ? 503 : 500, { error: `AIシーケンス分析に失敗しました: ${error.message}` });
+        return;
+      } finally {
+        runningDeathAnalyses.delete(jobKey);
       }
     }
     if (request.method === 'GET' && parts[0] === 'api' && parts[1] === 'analysis') {

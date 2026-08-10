@@ -12,7 +12,7 @@ import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
 import { identifyResultWeapon, weaponCatalogMetadata } from './weapon-analysis.mjs';
-import { analyzeDeathsWithCodex } from './codex-death-analysis.mjs';
+import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
 import { analyzeResultLocally, chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-analysis.mjs';
 import { refineResultBoundaries, resultBoundaryModelVersion } from './result-boundary.mjs';
 import { analyzeRecordingStages } from './stage-analysis.mjs';
@@ -552,7 +552,8 @@ export class Pipeline {
         };
       }
       const describedDeaths = describeSelfDeaths(deaths, { detections, playerCounts });
-      const analyzedDeaths = await analyzeDeathsWithCodex({ clipPath, deaths: describedDeaths, workDir, matchNumber: index + 1 });
+      const deathSequenceResult = await analyzeDeathSequencesWithCodex({ clipPath, deaths: describedDeaths, workDir, matchNumber: index + 1 });
+      const analyzedDeaths = deathSequenceResult.deaths;
       const events = [...analyzedDeaths].sort((a, b) => a.time - b.time);
       const series = classified
         .filter(sample => sample.time >= match.start && sample.time <= match.end)
@@ -563,13 +564,14 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 24,
+        version: 25,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
         source: { fileName: recording.fileName, start: match.start, end: match.end },
         media: { duration: match.duration, codec: media.codec, width: media.width, height: media.height, fps: media.fps },
         events,
+        deathAnalysis: deathSequenceResult.analysis,
         series,
         gameFlow: {
           deaths: { self: deaths.map(death => [death.time, death.duration]) },
@@ -617,7 +619,8 @@ export class Pipeline {
               : identityConfirmed
                 ? 'result-count-validated-self-hud'
                 : 'unavailable-no-death-evidence',
-          deathExplanation: analyzedDeaths.some(death => death.analysisSource?.startsWith('codex-vision')) ? 'codex-vision' : 'automatic-fallback',
+          deathExplanation: analyzedDeaths.some(death => death.analysisSource?.startsWith('codex-vision')) ? 'codex-vision-sequence' : 'automatic-fallback',
+          deathSequenceAnalysis: deathSequenceResult.analysis ? 'codex-vision-sequence' : 'available-on-demand',
           playerWeapon: weaponEvidence && weaponEvidence.status !== 'candidate-only'
             ? weaponEvidence.status
             : 'unavailable-low-confidence-result-icon-match',

@@ -21,8 +21,16 @@
 - `media.duration`: 分割動画の長さ（秒）
 - `events`: 分析候補の時刻、説明、確度、根拠
   - `type: death` には `title`、`situation`、`cause` を保存する
-  - ChatGPTプランで認証したCodex CLIによる画像分析が成功した場合、`analysisSource` は `codex-vision`、保存済み結果の再利用時は `codex-vision-cache`
+  - AIシーケンス分析済みのデスは、`sequence`、`turningPoint`、`patternTags` も持つ
+  - `sequence[]` はデス時刻に対する `offset`、局面 `phase`、画面上の事実 `observation`、解釈 `interpretation` を持つ
+  - AI分析が成功した場合、`analysisSource` は `codex-vision-sequence`、保存済み結果の再利用時は `codex-vision-sequence-cache`
   - AI分析が利用できない場合も、人数状況と映像内の敵候補から作るローカル説明へフォールバックする
+- `deathAnalysis`: 試合単位のAIデス分析。未実行時は `null`
+  - `overallSummary`: 試合内のデス全体の要約
+  - `sequences`: `events` へ反映したデスごとのシーケンス分析
+  - `patterns[]`: 2件以上のデスで共通する `trigger` → `repeatedAction` → `consequence`
+  - `patterns[].deathIds`: パターンの根拠となるデスID。最低2件
+  - `patterns[].reviewFocus`: 映像を見返す際の具体的な注目点
 - `series[].motion`: 連続フレームの画面変化量
 - `series[].hud`: HUDらしさのスコア
 - `gameFlow.deaths.self`: 自分のデス開始秒と、次に生存表示を確認するまでの秒数
@@ -102,4 +110,4 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン24です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン25です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
