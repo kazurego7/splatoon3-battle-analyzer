@@ -25,5 +25,5 @@ test('report digest presents at most two concise failure patterns', () => {
   assert.equal(digest, '「退路不足」：敵インクへ出て戻れなくなる。 「人数不利で前進」：味方の復帰を待たずに接敵する。');
   assert.equal(deathReportDigest({ deathAnalysis: { patterns: [{ title: '単独パターン', summary: '一文目。二文目。三文目。' }] } }), '「単独パターン」：一文目。二文目。');
   assert.equal(deathReportDigest({ deathAnalysis: { patterns: [] } }), 'この試合では、2回以上繰り返した失敗パターンは見つかりませんでした。');
-  assert.match(deathReportDigest({}), /AI分析を実行/);
+  assert.match(deathReportDigest({}), /デス前後の映像を比較/);
 });

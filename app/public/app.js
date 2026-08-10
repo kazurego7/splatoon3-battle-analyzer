@@ -5,7 +5,7 @@ const byId = id => document.getElementById(id);
 const elements = {
   recordingList:byId('recording-list'), recordingCount:byId('recording-count'), empty:byId('empty-state'), recordingView:byId('recording-view'), reviewView:byId('review-view'),
   selectedTitle:byId('selected-title'), selectedStatus:byId('selected-status'), selectedProgress:byId('selected-progress'), error:byId('recording-error'), matchList:byId('match-list'),
-  video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), eventCount:byId('event-count'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
+  video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
   timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), playerCountStatus:byId('player-count-status'), gameCountStatus:byId('game-count-status'),
   chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHit:byId('chart-hit'),
   capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'), briefingRouteLayer:byId('briefing-route-layer'),
@@ -16,7 +16,7 @@ const elements = {
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:31, countBottom:116, labelY:146 };
+const chartBounds = { left:34, right:978, countTop:31, countBottom:212, labelY:246 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -248,21 +248,20 @@ function selectDeathEvent(event,key) {
   elements.video.currentTime=deathSeekTime(event,-8,currentAnalysis.media.duration);updatePlaybackUi();
 }
 function renderEvents(preferredKey=null) {
-  const deaths=currentAnalysis.events.filter(event=>event.type==='death'),keys=deaths.map((event,index)=>String(event.id||`${event.time}-${index}`));elements.eventCount.textContent=`${deaths.length}件`;
+  const deaths=currentAnalysis.events.filter(event=>event.type==='death'),keys=deaths.map((event,index)=>String(event.id||`${event.time}-${index}`));
   selectedDeathKey=preferredKey&&keys.includes(preferredKey)?preferredKey:null;
-  elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=`${formatTime(event.time)} ${deathTitle(event)}`;button.setAttribute('aria-pressed',String(key===selectedDeathKey));button.classList.toggle('active',key===selectedDeathKey);const meta=document.createElement('span');meta.className='death-event-meta';const indexLabel=document.createElement('span');indexLabel.className='death-index';indexLabel.textContent=`D${index+1}`;const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);meta.append(indexLabel,time);const title=document.createElement('strong');title.textContent=deathTitle(event);button.append(meta,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
+  elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=`${formatTime(event.time)} ${deathTitle(event)}`;button.setAttribute('aria-pressed',String(key===selectedDeathKey));button.classList.toggle('active',key===selectedDeathKey);const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const title=document.createElement('strong');title.textContent=deathTitle(event);button.append(time,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
 }
 function renderDeathAnalysisSummary() {
-  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[];elements.deathAiButton.disabled=!deaths.length;elements.deathAiButton.textContent=analysis?'再分析':'AI分析';elements.deathReportButton.disabled=!analysis;elements.deathReportButton.title=analysis?'失敗パターンを別ウィンドウで開く':'先にAI分析を実行してください';
+  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[];elements.deathAiButton.hidden=!deaths.length;elements.deathAiButton.disabled=!deaths.length;elements.deathAiButton.textContent=analysis?'再分析':'AI分析';elements.deathReportButton.hidden=!analysis;elements.deathReportButton.disabled=!analysis;elements.deathReportButton.title=analysis?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=true;elements.deathAiStatus.classList.remove('error');
   elements.deathReportDigest.textContent=deathReportDigest(currentAnalysis);
-  if(!analysis){elements.deathAiStatus.textContent=deaths.length?'AI分析で行動の分岐点を抽出できます。':'分析できるデスがありません。';return;}
-  const patternCount=analysis.patterns?.length||0;elements.deathAiStatus.textContent=`AI分析済み・反復パターン ${patternCount}件`;
+  if(!analysis&&!deaths.length){elements.deathAiButton.hidden=true;elements.deathReportDigest.textContent='分析できるデスがありません。';}
 }
-function openDeathReport() { if(!currentMatch||!currentAnalysis?.deathAnalysis)return;const query=new URLSearchParams({analysis:currentMatch.analysisUrl,video:currentMatch.videoUrl,title:`${currentRecording.fileName} / 試合 ${String(currentMatch.number).padStart(2,'0')}`});const report=window.open(`/report.html?${query}`,'_blank');if(report)report.opener=null;else elements.deathAiStatus.textContent='ポップアップがブロックされました。ブラウザで許可してください。'; }
+function openDeathReport() { if(!currentMatch||!currentAnalysis?.deathAnalysis)return;const query=new URLSearchParams({analysis:currentMatch.analysisUrl,video:currentMatch.videoUrl,title:`${currentRecording.fileName} / 試合 ${String(currentMatch.number).padStart(2,'0')}`});const report=window.open(`/report.html?${query}`,'_blank');if(report)report.opener=null;else{elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent='ポップアップがブロックされました。ブラウザで許可してください。';} }
 async function runDeathAiAnalysis() {
-  if(!currentMatch||elements.deathAiButton.disabled)return;const previousKey=selectedDeathKey,refresh=Boolean(currentAnalysis.deathAnalysis);elements.deathAiButton.disabled=true;elements.deathAiStatus.classList.remove('error');elements.deathAiStatus.textContent='AIが各デスの行動シーケンスを分析しています。数分かかることがあります…';
+  if(!currentMatch||elements.deathAiButton.disabled)return;const previousKey=selectedDeathKey,refresh=Boolean(currentAnalysis.deathAnalysis);elements.deathAiButton.disabled=true;elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.remove('error');elements.deathAiStatus.textContent='AIがデス前後の映像を比較しています。数分かかることがあります…';
   try{const response=await fetch(deathAnalysisEndpoint(currentMatch.analysisUrl),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh})});const value=await response.json();if(!response.ok)throw new Error(value.error||`HTTP ${response.status}`);currentAnalysis=value;matchMetadataCache.set(currentMatch.analysisUrl,currentAnalysis);renderDeathAnalysisSummary();renderEvents(previousKey);renderChart();}
-  catch(error){elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent=error.message;}
+  catch(error){elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent=error.message;}
   finally{elements.deathAiButton.disabled=!(currentAnalysis?.events||[]).some(event=>event.type==='death');}
 }
 function renderCapabilities() { const names={segmentation:'試合分割',matchOutcome:'勝敗発表',deaths:'本人デス判定',deathExplanation:'デスの状況・原因',playerWeapon:'自分のブキ',playerCounts:'生存人数',playerRoute:'プレイヤー動線',mapAllies:'味方位置・予測',enemyThreats:'敵の脅威範囲予測',enemyRoutes:'敵候補の予測動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).filter(([key])=>key in names).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key];const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }

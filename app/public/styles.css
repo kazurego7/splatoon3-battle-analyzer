@@ -99,21 +99,20 @@ button,input { font:inherit; } button { color:inherit; cursor:pointer; }
 
 /* Death review: concise report digest followed by the scrollable vertical death list. */
 .death-panel-heading { align-items:center; }
-.death-analysis-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
-.death-analysis-actions button { min-height:28px; padding:4px 8px; border:1px solid rgba(39,213,255,.4); border-radius:7px; color:var(--cyan); background:rgba(39,213,255,.08); font-size:10px; font-weight:850; }
-.death-analysis-actions button:disabled { cursor:wait; opacity:.55; }
-.death-review-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:7px; padding:6px 9px; border-bottom:1px solid var(--line); }
-.death-ai-status { min-width:0; margin:0; overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.death-ai-status.error { color:#ff9aa4; }
-.death-review-toolbar button { min-height:28px; padding:0 8px; border:1px solid rgba(184,255,61,.32); border-radius:7px; color:var(--lime); background:rgba(184,255,61,.07); font-size:10px; font-weight:850; }.death-review-toolbar button:disabled { opacity:.35; }
-.death-report-digest { display:grid; gap:5px; padding:12px 11px; border-bottom:1px solid var(--line); background:linear-gradient(135deg,rgba(184,255,61,.09),rgba(39,213,255,.035)); }
+.death-report-digest { display:grid; gap:7px; padding:12px 11px; border-bottom:1px solid var(--line); background:linear-gradient(135deg,rgba(184,255,61,.09),rgba(39,213,255,.035)); }
 .death-report-digest h3 { margin:0; color:var(--lime); font-size:10px; font-weight:900; letter-spacing:.08em; }
 .death-report-digest p { margin:0; color:#eef5df; font-size:13px; font-weight:720; line-height:1.55; }
+.death-report-digest .death-ai-status { color:var(--muted); font-size:10px; font-weight:700; }.death-report-digest .death-ai-status.error { color:#ff9aa4; }
+.death-digest-actions { display:flex; justify-content:flex-end; gap:7px; }
+.death-digest-actions button { min-height:30px; padding:4px 11px; border-radius:7px; font-size:11px; font-weight:900; }
+#death-ai-button { border:1px solid rgba(39,213,255,.5); color:#061018; background:var(--cyan); }
+#death-ai-button:hover { filter:brightness(1.08); }
+#death-ai-button:disabled { cursor:wait; opacity:.55; }
+#death-report-button { border:1px solid rgba(184,255,61,.42); color:var(--lime); background:rgba(184,255,61,.08); }
 .death-list-label { padding:10px 12px 7px; }
 .evidence-panel .event-list.death-selector { display:block; flex:1 1 auto; min-height:0; max-height:none; padding:0; overflow-y:auto; border-top:1px solid var(--line); }
-.death-selector .event-item { display:grid; grid-template-columns:52px minmax(0,1fr); align-items:center; gap:11px; min-height:60px; padding:10px 12px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:rgba(255,90,102,.025); }
+.death-selector .event-item { display:grid; grid-template-columns:58px minmax(0,1fr); align-items:center; gap:11px; min-height:56px; padding:9px 12px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:rgba(255,90,102,.025); }
 .death-selector .event-item:hover { background:rgba(255,90,102,.08); }
 .death-selector .event-item.active { background:rgba(255,90,102,.14); box-shadow:inset 3px 0 0 var(--danger); }
-.death-event-meta { display:grid; gap:2px; }
-.death-selector .death-index { color:var(--danger); font-size:10px; font-weight:950; }
 .death-selector .event-time { color:#ff8f99; font-size:13px; }
 .death-selector .event-item > strong { display:-webkit-box; overflow:hidden; font-size:14px; line-height:1.4; -webkit-box-orient:vertical; -webkit-line-clamp:2; }

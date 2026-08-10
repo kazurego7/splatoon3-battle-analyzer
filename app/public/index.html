@@ -38,11 +38,12 @@
 
         <div class="review-grid">
           <aside class="panel evidence-panel" aria-labelledby="advice-heading">
-            <div class="panel-heading death-panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div><div class="death-analysis-actions"><span id="event-count"></span><button id="death-ai-button" type="button">AI分析</button></div></div>
-            <div class="death-review-toolbar"><p id="death-ai-status" class="death-ai-status">デスを選ぶと8秒前へ移動します。</p><button id="death-report-button" type="button" disabled>俯瞰レポート ↗</button></div>
+            <div class="panel-heading death-panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div></div>
             <section class="death-report-digest" aria-labelledby="death-report-digest-heading">
               <h3 id="death-report-digest-heading">レポートダイジェスト</h3>
-              <p id="death-report-digest">AI分析を実行すると、この試合で繰り返した失敗パターンをここに表示します。</p>
+              <p id="death-report-digest">AIがデス前後の映像を比較し、この試合で繰り返した失敗パターンを1〜2文にまとめます。</p>
+              <p id="death-ai-status" class="death-ai-status" hidden></p>
+              <div class="death-digest-actions"><button id="death-ai-button" type="button">AI分析</button><button id="death-report-button" type="button" hidden>俯瞰レポート ↗</button></div>
             </section>
             <div class="death-list-label">確認するデス</div>
             <div id="event-list" class="event-list death-selector"></div>
@@ -55,9 +56,9 @@
             </div>
             <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数差 —</span></div>
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 158" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
+            <svg id="analysis-chart" viewBox="0 0 1000 260" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
               <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g>
-              <rect id="chart-hit" x="34" y="26" width="944" height="124"></rect>
+              <rect id="chart-hit" x="34" y="26" width="944" height="226"></rect>
             </svg>
             <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>自軍ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
           </section>

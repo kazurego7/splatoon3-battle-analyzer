@@ -19,7 +19,7 @@ function firstSentences(value, limit) {
 export function deathReportDigest(analysis) {
   const isDirectReport = Array.isArray(analysis?.patterns) || Object.hasOwn(analysis || {}, 'overallSummary');
   const report = analysis?.deathAnalysis || (isDirectReport ? analysis : null);
-  if (!report) return 'AI分析を実行すると、この試合で繰り返した失敗パターンをここに表示します。';
+  if (!report) return 'AIがデス前後の映像を比較し、この試合で繰り返した失敗パターンを1〜2文にまとめます。';
   const patterns = Array.isArray(report.patterns) ? report.patterns : [];
   if (!patterns.length) return 'この試合では、2回以上繰り返した失敗パターンは見つかりませんでした。';
   return patterns.slice(0, 2).map(pattern => {
