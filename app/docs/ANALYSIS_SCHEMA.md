@@ -38,6 +38,13 @@
     - `status`: その試合のリザルトから直接識別した `identified-from-result-icon`、録画内の一致で補強した `confirmed-by-recording-consistency`、前試合から引き継いだ `inferred-from-previous-result`、または画面へ出さない `candidate-only`
     - `name` / `id`: 日本語ブキ名と辞書ID
     - `candidates`: 上位候補と画像距離。確度不足時にも検証根拠として保持
+- `outcome`: 試合終了後の勝敗発表から読み取った勝敗
+  - `value`: `win` または `lose`
+  - `time`: 試合クリップ内で最も確度の高い発表を確認した秒
+  - `confidence`: 左上タイトルの形状と複数フレームの一致から算出した0〜1の確度
+  - `observations`: 同じ勝敗発表を確認できたフレーム数。2回以上の一致を必須とする
+  - `source`: `post-match-announcement-local-vision`
+  - 発表を検出できない場合だけ、一覧画面は最後のゲームカウント比較へフォールバックする
 - `gameFlow.playerCounts[]`: 1秒ごとの自軍・相手の生存人数と人数差
   - `teamAlive` / `enemyAlive`: 0〜4人の生存人数
   - `difference`: `teamAlive - enemyAlive`
@@ -95,4 +102,4 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン23です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+現在の解析JSONはバージョン24です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。

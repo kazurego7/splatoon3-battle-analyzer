@@ -16,6 +16,7 @@ import { analyzeDeathsWithCodex } from './codex-death-analysis.mjs';
 import { analyzeResultLocally, chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-analysis.mjs';
 import { refineResultBoundaries, resultBoundaryModelVersion } from './result-boundary.mjs';
 import { analyzeRecordingStages } from './stage-analysis.mjs';
+import { analyzeOutcomeLocally, outcomeModelVersion } from './outcome-analysis.mjs';
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -297,6 +298,41 @@ export class Pipeline {
         resultAnalyses.push(null);
       }
     }
+    const outcomeCache = path.join(workDir, 'outcomes.json');
+    const outcomeCacheKey = segments.map(segmentCacheKey).join('|');
+    let outcomeAnalyses;
+    try {
+      const cached = JSON.parse(await fs.readFile(outcomeCache, 'utf8'));
+      if (cached.version !== outcomeModelVersion || cached.cacheKey !== outcomeCacheKey || cached.outcomes?.length !== matches.length) {
+        throw new Error('古い勝敗判定キャッシュ');
+      }
+      outcomeAnalyses = cached.outcomes;
+    } catch {
+      outcomeAnalyses = [];
+      for (let index = 0; index < matches.length; index += 1) {
+        await this.store.patch(id, {
+          status: 'analyzing',
+          phase: `試合${index + 1}/${matches.length}の勝敗発表を検出中`,
+          progress: 0.68,
+        });
+        try {
+          outcomeAnalyses.push(await analyzeOutcomeLocally({
+            source: recording.source,
+            matchStart: matches[index].start,
+            activeEnd: segments[index].activeEnd,
+            matchEnd: matches[index].end,
+          }));
+        } catch (error) {
+          console.warn(`Outcome analysis unavailable for match ${index + 1}: ${error.message}`);
+          outcomeAnalyses.push(null);
+        }
+      }
+      await fs.writeFile(outcomeCache, `${JSON.stringify({
+        version: outcomeModelVersion,
+        cacheKey: outcomeCacheKey,
+        outcomes: outcomeAnalyses,
+      }, null, 2)}\n`);
+    }
     let stageResults = [];
     try {
       await this.store.patch(id, { status: 'analyzing', phase: 'リザルトからルールとステージを読取中', progress: 0.68 });
@@ -387,6 +423,7 @@ export class Pipeline {
         weapon: weaponEvidence,
       };
       const resultAnalysis = resultAnalyses[index];
+      const outcome = outcomeAnalyses[index];
       const respawnCache = path.join(workDir, `respawn-hud-match-${String(match.number).padStart(2, '0')}.json`);
       let respawnSamples;
       try {
@@ -526,7 +563,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 23,
+        version: 24,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -540,7 +577,15 @@ export class Pipeline {
           gameCounts,
         },
         playerIdentity: identity,
+        outcome,
         validation: {
+          outcome: {
+            detected: outcome?.value ?? null,
+            confidence: outcome?.confidence ?? null,
+            observations: outcome?.observations ?? 0,
+            source: outcome?.source || 'post-match-announcement-not-found',
+            announcementTime: outcome?.time ?? null,
+          },
           deaths: {
             expected: resultAnalysis?.deathCount ?? null,
             observed: deaths.length,
@@ -577,6 +622,9 @@ export class Pipeline {
             ? weaponEvidence.status
             : 'unavailable-low-confidence-result-icon-match',
           playerCounts: 'automatic-battle-hud',
+          matchOutcome: outcome
+            ? 'automatic-post-match-win-lose-announcement'
+            : 'unavailable-post-match-announcement-not-found',
           playerRoute: playerRoute.length ? 'automatic-observed-self-marker-and-inferred-map-route' : 'unavailable-no-grounded-self-marker',
           mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',

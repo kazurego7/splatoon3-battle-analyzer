@@ -21,9 +21,10 @@ npm start
 3. 2秒間隔の映像特徴とルール表示から試合区間を検出する
 4. 詳細リザルトまで含め、入力と同じ映像コーデックで一時領域へ全試合を再エンコードする
 5. 全クリップの映像・音声を確認してから完成領域へ入れ替える
-6. リザルトの自分行または個人戦績画面から、追加料金のないローカルOCRでデス数を読み、本人HUD枠と復活UIの候補をその件数へ照合する。リザルトがなければデス分析を生成しない
-7. `CODEX_DEATH_ANALYSIS=true` の場合だけ、認証済みのOpenAI/Codex実行環境でデス前後画像をAI分析する
-8. 一覧を「分析済み」にし、各試合を開けるようにする
+6. 試合終了後の左上に表示される `WIN!` / `LOSE...` を複数フレームで確認し、勝敗を判定する
+7. リザルトの自分行または個人戦績画面から、追加料金のないローカルOCRでデス数を読み、本人HUD枠と復活UIの候補をその件数へ照合する。リザルトがなければデス分析を生成しない
+8. `CODEX_DEATH_ANALYSIS=true` の場合だけ、認証済みのOpenAI/Codex実行環境でデス前後画像をAI分析する
+9. 一覧を「分析済み」にし、各試合を開けるようにする
 
 状態は `待機中 → 確認中 → 分割中 → 分析中 → 分析済み` と表示されます。失敗時はエラー内容と再分析ボタンを表示します。
 
@@ -51,6 +52,9 @@ npm run calibrate:game-penalty
 # 未学習時刻のラベル一致・短い値往復・マップ表示時変化を検証
 npm run validate:game-penalty
 
+# 人が確認した勝敗ラベルと終了後のWIN/LOSE発表判定を照合
+npm run validate:outcomes -- "..\data\raw\<recording>.mp4" "..\data\work\<recording-id>\manifest.json"
+
 # 構文・ユニットテスト
 npm run check
 npm test
@@ -58,6 +62,8 @@ npm run check:public
 ```
 
 ペナルティ教師ラベルは `config/game-penalty-calibration-observations.json`、未学習時刻の検証ラベルは `config/game-penalty-validation-observations.json` に保存します。各観測は `[試合内秒数, 自軍ペナルティ, 相手ペナルティ]` で、表示されていない側は `null` です。確認用の切り抜きとコンタクトシートは `../data/work/penalty-training-review/` と `../data/work/penalty-validation-review/` にあります。
+
+勝敗の確認済みラベルは `config/outcome-validation-observations.json` に保存します。録画や勝敗発表画像はGitへ含めず、検証コマンドへローカル録画と区間マニフェストを渡します。
 
 環境変数:
 

@@ -1,0 +1,33 @@
+{
+  "source": "human-reviewed-post-match-announcement",
+  "recordings": [
+    {
+      "recording": "2026-08-09 15-29-11.mp4",
+      "matches": [
+        { "match": 1, "expected": "win" },
+        { "match": 2, "expected": "lose" },
+        { "match": 3, "expected": "lose" },
+        { "match": 4, "expected": "win" },
+        { "match": 5, "expected": "lose" },
+        { "match": 6, "expected": "win" },
+        { "match": 7, "expected": "lose" },
+        { "match": 8, "expected": "lose" },
+        { "match": 9, "expected": "lose" },
+        { "match": 10, "expected": "lose" },
+        { "match": 11, "expected": "win" },
+        { "match": 12, "expected": "win" },
+        { "match": 13, "expected": "win" },
+        { "match": 14, "expected": "win" }
+      ]
+    },
+    {
+      "recording": "2026-08-08 15-20-32.mp4",
+      "matches": [
+        { "match": 1, "expected": "lose" },
+        { "match": 2, "expected": "lose" },
+        { "match": 3, "expected": "lose" },
+        { "match": 4, "expected": "win" }
+      ]
+    }
+  ]
+}
