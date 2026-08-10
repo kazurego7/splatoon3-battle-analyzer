@@ -1,0 +1,4 @@
+interface:
+  display_name: "ステージ画像を同期"
+  short_description: "スプラ3のステージ画像を取得・検証して安全に更新します"
+  default_prompt: "Use $sync-splatoon-stage-maps to update and validate the Splatoon 3 stage map images."

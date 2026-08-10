@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battle Review</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <p class="eyebrow">SPLATOON 3 / MATCH ANALYSIS</p>
+        <h1>Battle Review</h1>
+      </div>
+    </div>
+    <div class="match-meta" aria-label="試合情報">
+      <span id="stage-name">スメーシーワールド</span>
+      <span class="meta-separator">•</span>
+      <span id="rule-name">ガチヤグラ</span>
+      <span class="sample-badge" id="data-status">サンプル解析データ</span>
+      <button class="open-match-button" id="open-match" type="button">試合データを開く</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="panel video-panel" aria-labelledby="video-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="section-label">REPLAY</p>
+          <h2 id="video-heading">バトル映像</h2>
+        </div>
+      </div>
+
+      <div class="video-shell">
+        <video id="battle-video" preload="metadata" playsinline>
+          <source src="../data/matches/2026-08-07_20-49-39/試合01.mp4" type="video/mp4">
+        </video>
+        <svg class="video-detection-layer" id="video-detection-layer" viewBox="0 0 1600 900" aria-label="映像で確認できた敵と味方の位置">
+          <g id="video-detections"></g>
+        </svg>
+        <button class="video-overlay" id="video-overlay" type="button" aria-label="再生">
+          <span class="large-play" aria-hidden="true">▶</span>
+        </button>
+        <div class="video-state" id="video-state">OPENING</div>
+        <div class="perception-state" id="perception-state">映像内の認識情報のみ表示</div>
+      </div>
+
+      <div class="timeline-block">
+        <div class="timeline-legend" aria-label="タイムラインマーカーの凡例">
+          <span><i class="legend-dot death"></i>デス</span>
+          <span><i class="legend-dot insight"></i>分析ポイント</span>
+        </div>
+        <div class="timeline" id="timeline">
+          <div class="timeline-track"></div>
+          <div class="timeline-progress" id="timeline-progress"></div>
+          <div class="timeline-events" id="timeline-events"></div>
+          <input id="seek" type="range" min="0" max="359" step="0.01" value="0" aria-label="再生位置">
+        </div>
+        <div class="timeline-status" aria-live="polite">
+          <div class="live-time"><span id="current-time">00:00</span><span class="time-divider">/</span><span id="duration">05:59</span></div>
+          <div class="flow-live-state">
+            <span class="flow-score team"><i></i><strong id="flow-team-count">100</strong></span>
+            <span class="flow-score enemy"><i></i><strong id="flow-enemy-count">100</strong></span>
+            <span class="flow-death-state" id="flow-death-state">自4–敵4・五分</span>
+          </div>
+        </div>
+      </div>
+
+      <section class="match-flow" aria-label="ゲームカウントと人数差">
+        <div class="flow-legend" aria-label="グラフの凡例">
+          <span><i class="flow-line team"></i>自チームのカウント</span>
+          <span><i class="flow-line enemy"></i>相手のカウント</span>
+          <span><i class="flow-advantage favorable"></i>人数有利</span>
+          <span><i class="flow-advantage unfavorable"></i>人数不利</span>
+          <span><i class="flow-mark self"></i>自分のデス中</span>
+        </div>
+        <svg id="flow-chart" viewBox="0 0 760 240" role="img" aria-label="試合を通した両チームのカウント推移、人数有利不利、自分のデスタイミング">
+          <g id="flow-grid"></g>
+          <g id="flow-count-lines"></g>
+          <g id="flow-death-marks"></g>
+          <g id="flow-cursor-layer"></g>
+          <rect class="flow-hit-area" id="flow-hit-area" x="0" y="0" width="760" height="240"></rect>
+        </svg>
+      </section>
+    </section>
+
+    <section class="panel map-panel" aria-labelledby="map-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="section-label">TACTICAL MAP</p>
+          <h2 id="map-heading">ステージマップ</h2>
+        </div>
+        <div class="map-toggles" role="group" aria-label="マップ表示切替">
+          <button class="toggle is-active" type="button" data-layer="route" aria-pressed="true">動線</button>
+          <button class="toggle is-active" type="button" data-layer="enemy" aria-pressed="true">認識情報</button>
+        </div>
+      </div>
+
+      <div class="map-shell" id="map-shell">
+        <img id="stage-map-image" src="../assets/stage-maps/images/スメーシーワールド_ヤグラ.webp" alt="スメーシーワールド ガチヤグラの俯瞰マップ">
+        <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="時系列で同期するプレイヤー動線と敵位置">
+          <g id="route-layer"></g>
+          <g id="enemy-layer"></g>
+          <g id="player-layer"></g>
+        </svg>
+        <div class="hp-card" id="hp-card">
+          <span>HP</span>
+          <strong id="hp-value">100</strong>
+          <div class="hp-meter"><span id="hp-bar"></span></div>
+        </div>
+        <div class="map-clock" id="map-clock">00:00</div>
+      </div>
+
+      <div class="map-footer">
+        <div class="map-legend">
+          <span><i class="player-symbol"></i>なむなん</span>
+          <span><i class="enemy-symbol">S</i>映像で確認</span>
+          <span><i class="enemy-symbol inferred">→</i>敵・味方の予想動線</span>
+          <span><i class="route-symbol"></i>自分の試合全体の動線</span>
+        </div>
+        <p>自分の全動線は薄く残し、現在時刻の前後を強調。敵・味方は知覚済みの移動から予測します。</p>
+      </div>
+    </section>
+
+    <aside class="panel advice-panel" aria-labelledby="advice-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="section-label">COACH NOTES</p>
+          <h2 id="advice-heading">アドバイス</h2>
+        </div>
+        <span class="note-count" id="note-count">0 / 0</span>
+      </div>
+
+      <div class="current-note" id="current-note" aria-live="polite">
+        <div class="note-topline"><span class="note-kind">ANALYSIS</span><time>00:18</time></div>
+        <h3>中央への進入ルートを確認</h3>
+        <p>味方の初動と、映像内で確認できた敵の射線を見比べます。</p>
+        <div class="note-action"><span>見るポイント</span><strong>視界に入った敵の移動方向</strong></div>
+      </div>
+
+      <div class="advice-filter" role="group" aria-label="アドバイス絞り込み">
+        <button class="filter is-active" type="button" data-filter="all">すべて</button>
+        <button class="filter" type="button" data-filter="death">デス</button>
+        <button class="filter" type="button" data-filter="insight">分析ポイント</button>
+      </div>
+      <div class="notes-list" id="notes-list"></div>
+    </aside>
+  </main>
+
+  <footer class="footer-note">
+    <span>Wiki ステージ俯瞰マップを使用</span>
+    <span>実位置は知覚できた情報だけを表示。点線は、その時点までの観測から算出した敵・味方の短時間予測です</span>
+  </footer>
+
+  <dialog class="data-dialog" id="data-dialog" aria-labelledby="data-dialog-title">
+    <form method="dialog" class="data-dialog-card" id="data-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="section-label">LOCAL MATCH DATA</p>
+          <h2 id="data-dialog-title">試合データを開く</h2>
+        </div>
+        <button class="dialog-close" value="cancel" type="submit" aria-label="閉じる">×</button>
+      </div>
+      <p class="dialog-description">ファイルはこのブラウザ内だけで読み込みます。解析JSONだけを差し替えることもできます。</p>
+      <div class="data-fields">
+        <label class="file-field">
+          <span>バトル動画</span>
+          <input id="video-file" type="file" accept="video/mp4,video/webm,video/quicktime">
+          <small>MP4 / WebM / MOV</small>
+        </label>
+        <label class="file-field">
+          <span>解析JSON <b>必須</b></span>
+          <input id="analysis-file" type="file" accept="application/json,.json">
+          <small>route・events・detections・gameFlowを含むJSON</small>
+        </label>
+        <label class="file-field">
+          <span>ステージマップ</span>
+          <input id="map-file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
+          <small>PNG / JPEG / WebP / SVG</small>
+        </label>
+        <label class="text-field"><span>ステージ名</span><input id="stage-input" type="text" value="スメーシーワールド"></label>
+        <label class="text-field"><span>ルール</span><input id="rule-input" type="text" value="ガチヤグラ"></label>
+      </div>
+      <p class="data-error" id="data-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="download-analysis" type="button">現在のJSONを書き出す</button>
+        <button class="secondary-button" id="reset-demo" type="button">デモへ戻す</button>
+        <button class="primary-button" id="apply-data" type="button">読み込んで表示</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./app.js"></script>
+</body>
+</html>

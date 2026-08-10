@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deaths"],
+  "properties": {
+    "deaths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "situation", "cause"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "situation": { "type": "string", "minLength": 1, "maxLength": 600 },
+          "cause": { "type": "string", "minLength": 1, "maxLength": 600 }
+        }
+      }
+    }
+  }
+}

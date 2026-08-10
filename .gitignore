@@ -1,13 +1,54 @@
-node_modules/
-dist/
+# Local dependencies and build output
+**/node_modules/
+**/dist/
+**/coverage/
+**/.cache/
+*.log
+
+# Secrets and machine-specific settings
 .env
 .env.*
 !.env.example
-*.log
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-coverage/
-.cache/
-*.traineddata
+
+# Recordings and generated analysis (keep the directory guide)
+data/*
+!data/README.md
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# Downloaded runtimes and retired local experiments
+tools/runtime/
+archive/*
+!archive/README.md
+
+# Temporary review media
+tmp-*/
+tmp-*.jpg
+tmp-*.jpeg
+tmp-*.png
+tmp-*.webp
+*.tmp
+*.invalid-encoding
+
+# Stage-map synchronization scratch and derived audit files
+assets/stage-maps/images/*
+!assets/stage-maps/images/.gitkeep
+assets/stage-maps/.repair*/
+assets/stage-maps/audit-*.json
+assets/stage-maps/duplicate_images.txt
+assets/stage-maps/map_urls.txt
+assets/stage-maps/README.txt
+
+# Locally generated from third-party game data; never redistribute by default
+app/src/weapon-catalog.json
+
+# Python caches created by skill scripts
+**/__pycache__/
+*.py[cod]

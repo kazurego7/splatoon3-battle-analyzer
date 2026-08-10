@@ -1,0 +1,21 @@
+{
+  "recordingId": "2026-08-09-15-29-11-22174d8e",
+  "analysisRoot": "../../data/app/analysis/2026-08-09-15-29-11-22174d8e",
+  "workRoot": "../../data/work/2026-08-09-15-29-11-22174d8e",
+  "matches": [
+    { "number": 1, "observations": [[155, 26, null], [195, 13, null]] },
+    { "number": 2, "observations": [[105, null, 13]] },
+    { "number": 3, "observations": [[225, null, 10]] },
+    { "number": 4, "observations": [[115, 14, null], [175, 38, null], [187, 38, null], [188, 38, null], [189, 38, null], [225, 38, 10]] },
+    { "number": 5, "observations": [[205, null, 25], [255, 14, null], [265, 14, 20]] },
+    { "number": 6, "observations": [[125, 23, 23], [205, 29, 23], [265, 29, 29]] },
+    { "number": 7, "observations": [[88, null, 37], [140, null, 27], [210, 36, 27], [260, 36, 17]] },
+    { "number": 8, "observations": [[110, null, 29], [235, 10, 29], [305, 17, 20]] },
+    { "number": 9, "observations": [[110, 26, 16], [186, 17, 16], [187, 17, 16], [188, 17, 16], [189, 17, 16], [190, 17, 16], [250, 17, 38]] },
+    { "number": 10, "observations": [[63, 0, null], [63.5, 0, null], [64, 22, null], [175, 22, 20]] },
+    { "number": 11, "observations": [[105, 20, null], [165, 20, 14]] },
+    { "number": 12, "observations": [[145, 10, null]] },
+    { "number": 13, "observations": [[205, 41, null]] },
+    { "number": 14, "observations": [[85, null, 14], [325, 29, 14]] }
+  ]
+}

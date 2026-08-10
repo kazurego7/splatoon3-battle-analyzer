@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-08-10",
+  "description": "個人・全体リザルトのルール／ステージ見出しを目視確認した回帰評価セット。resultTimeがnullの試合も判定失敗として分母に含める。",
+  "minimumAccuracy": 0.8,
+  "matches": [
+    { "recordingId": "2026-08-07-20-49-39-e9b8836b", "match": 1, "resultTime": 357, "stage": "スメーシーワールド", "rule": "ヤグラ" },
+    { "recordingId": "2026-08-08-15-20-32-69f2b9f4", "match": 1, "resultTime": 379, "stage": "タカアシ経済特区", "rule": "エリア" },
+    { "recordingId": "2026-08-08-15-20-32-69f2b9f4", "match": 2, "resultTime": 294, "stage": "タカアシ経済特区", "rule": "エリア" },
+    { "recordingId": "2026-08-08-15-20-32-69f2b9f4", "match": 3, "resultTime": 297, "stage": "タカアシ経済特区", "rule": "エリア" },
+    { "recordingId": "2026-08-08-15-20-32-69f2b9f4", "match": 4, "resultTime": 403, "stage": "タカアシ経済特区", "rule": "エリア" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 1, "resultTime": 252, "stage": "ナメロウ金属", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 2, "resultTime": 363, "stage": "ナメロウ金属", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 3, "resultTime": 346, "stage": "ナメロウ金属", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 4, "resultTime": null, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 5, "resultTime": 342, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 6, "resultTime": 342, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 7, "resultTime": 373, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 8, "resultTime": 371, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 9, "resultTime": 356, "stage": "ナメロウ金属", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 10, "resultTime": 234, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 11, "resultTime": 264, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 12, "resultTime": 247, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 13, "resultTime": 258, "stage": "ゴンズイ地区", "rule": "アサリ" },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 14, "resultTime": 376, "stage": "ナメロウ金属", "rule": "アサリ" }
+  ]
+}

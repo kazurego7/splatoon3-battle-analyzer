@@ -1,0 +1,27 @@
+{
+  "route": [
+    [0, 170, 815, 100],
+    [30, 300, 690, 100],
+    [60, 460, 560, 72]
+  ],
+  "events": [
+    {
+      "time": 45,
+      "type": "insight",
+      "kind": "ANALYSIS",
+      "title": "中央への進入を確認",
+      "detail": "この場面で視界に入っていた対象を確認します。",
+      "focus": "視認情報と進行方向"
+    }
+  ],
+  "detections": [],
+  "gameFlow": {
+    "teamCount": [[0, 100], [60, 92]],
+    "enemyCount": [[0, 100]],
+    "deaths": {
+      "self": [],
+      "ally": [],
+      "enemy": []
+    }
+  }
+}
