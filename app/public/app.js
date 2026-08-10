@@ -1,5 +1,5 @@
 import { resolveOutcomeLabel } from './outcome.js';
-import { deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from './death-analysis-ui.js';
+import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from './death-analysis-ui.js';
 
 const byId = id => document.getElementById(id);
 const elements = {
@@ -7,7 +7,7 @@ const elements = {
   selectedTitle:byId('selected-title'), selectedStatus:byId('selected-status'), selectedProgress:byId('selected-progress'), error:byId('recording-error'), matchList:byId('match-list'),
   video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
   timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), playerCountStatus:byId('player-count-status'), gameCountStatus:byId('game-count-status'),
-  chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHit:byId('chart-hit'),
+  chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHover:byId('chart-hover'), chartHit:byId('chart-hit'),
   capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'), briefingRouteLayer:byId('briefing-route-layer'),
   strongEditButton:byId('strong-edit-button'), strongEditPanel:byId('strong-edit-panel'), strongEditInstruction:byId('strong-edit-instruction'), strongTitleInput:byId('strong-title-input'), strongTipsInput:byId('strong-tips-input'), strongPositionList:byId('strong-position-list'), strongPositionCount:byId('strong-position-count'), strongFormTitle:byId('strong-form-title'), strongFormContext:byId('strong-form-context'), strongNewButton:byId('strong-new-button'), strongPositionButton:byId('strong-position-button'), strongTargetButton:byId('strong-target-button'), strongAddButton:byId('strong-add-button'),
   briefingToggleButton:byId('briefing-toggle-button'), briefingPanel:byId('briefing-panel'), briefingList:byId('briefing-list'), briefingCount:byId('briefing-count'), briefingFormTitle:byId('briefing-form-title'), briefingFormContext:byId('briefing-form-context'), briefingNewButton:byId('briefing-new-button'), briefingDeleteButton:byId('briefing-delete-button'), briefingTitleInput:byId('briefing-title-input'), briefingSituationInput:byId('briefing-situation-input'), briefingMovementInput:byId('briefing-movement-input'), briefingRouteButton:byId('briefing-route-button'), briefingUndoButton:byId('briefing-undo-button'), briefingSaveButton:byId('briefing-save-button'), positionSaveStatus:byId('position-save-status'),
@@ -16,7 +16,7 @@ const elements = {
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:31, countBottom:212, labelY:246 };
+const chartBounds = { left:34, right:978, countTop:31, countBottom:176, labelY:210 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -31,6 +31,8 @@ let selectedDeathKey = null;
 let currentRecording = null;
 let currentMatch = null;
 const matchMetadataCache = new Map();
+const deathAnalysisJobs = new Map();
+const deathAnalysisErrors = new Map();
 
 function formatTime(value) { const seconds=Math.max(0,Math.round(Number(value)||0)); return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`; }
 function formatSize(value) { return value>=1e9?`${(value/1e9).toFixed(1)} GB`:`${(value/1e6).toFixed(0)} MB`; }
@@ -253,16 +255,17 @@ function renderEvents(preferredKey=null) {
   elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=`${formatTime(event.time)} ${deathTitle(event)}`;button.setAttribute('aria-pressed',String(key===selectedDeathKey));button.classList.toggle('active',key===selectedDeathKey);const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const title=document.createElement('strong');title.textContent=deathTitle(event);button.append(time,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
 }
 function renderDeathAnalysisSummary() {
-  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[];elements.deathAiButton.hidden=!deaths.length;elements.deathAiButton.disabled=!deaths.length;elements.deathAiButton.textContent=analysis?'再分析':'AI分析';elements.deathReportButton.hidden=!analysis;elements.deathReportButton.disabled=!analysis;elements.deathReportButton.title=analysis?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=true;elements.deathAiStatus.classList.remove('error');
+  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[],analysisUrl=currentMatch?.analysisUrl||'',state=deathAnalysisControlState({analysis,deathCount:deaths.length,pending:deathAnalysisJobs.has(analysisUrl),error:deathAnalysisErrors.get(analysisUrl)});elements.deathAiButton.hidden=!state.showAnalyze;elements.deathAiButton.disabled=state.analyzeDisabled;elements.deathAiButton.textContent=state.analyzeLabel;elements.deathReportButton.hidden=!state.showReport;elements.deathReportButton.disabled=!state.showReport;elements.deathReportButton.title=state.showReport?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=!state.status;elements.deathAiStatus.classList.toggle('error',state.statusIsError);elements.deathAiStatus.textContent=state.status;
   elements.deathReportDigest.textContent=deathReportDigest(currentAnalysis);
-  if(!analysis&&!deaths.length){elements.deathAiButton.hidden=true;elements.deathReportDigest.textContent='分析できるデスがありません。';}
+  if(!analysis&&!deaths.length)elements.deathReportDigest.textContent='分析できるデスがありません。';
 }
 function openDeathReport() { if(!currentMatch||!currentAnalysis?.deathAnalysis)return;const query=new URLSearchParams({analysis:currentMatch.analysisUrl,video:currentMatch.videoUrl,title:`${currentRecording.fileName} / 試合 ${String(currentMatch.number).padStart(2,'0')}`});const report=window.open(`/report.html?${query}`,'_blank');if(report)report.opener=null;else{elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent='ポップアップがブロックされました。ブラウザで許可してください。';} }
 async function runDeathAiAnalysis() {
-  if(!currentMatch||elements.deathAiButton.disabled)return;const previousKey=selectedDeathKey,refresh=Boolean(currentAnalysis.deathAnalysis);elements.deathAiButton.disabled=true;elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.remove('error');elements.deathAiStatus.textContent='AIがデス前後の映像を比較しています。数分かかることがあります…';
-  try{const response=await fetch(deathAnalysisEndpoint(currentMatch.analysisUrl),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh})});const value=await response.json();if(!response.ok)throw new Error(value.error||`HTTP ${response.status}`);currentAnalysis=value;matchMetadataCache.set(currentMatch.analysisUrl,currentAnalysis);renderDeathAnalysisSummary();renderEvents(previousKey);renderChart();}
-  catch(error){elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent=error.message;}
-  finally{elements.deathAiButton.disabled=!(currentAnalysis?.events||[]).some(event=>event.type==='death');}
+  if(!currentMatch||elements.deathAiButton.disabled)return;const analysisUrl=currentMatch.analysisUrl,previousKey=selectedDeathKey;if(deathAnalysisJobs.has(analysisUrl))return;deathAnalysisErrors.delete(analysisUrl);
+  const job=(async()=>{try{const response=await fetch(deathAnalysisEndpoint(analysisUrl),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh:false})});const value=await response.json();if(!response.ok)throw new Error(value.error||`HTTP ${response.status}`);matchMetadataCache.set(analysisUrl,value);deathAnalysisErrors.delete(analysisUrl);if(currentMatch?.analysisUrl===analysisUrl){currentAnalysis=value;renderEvents(previousKey);renderChart();}}
+    catch(error){deathAnalysisErrors.set(analysisUrl,error.message);}
+    finally{deathAnalysisJobs.delete(analysisUrl);if(currentMatch?.analysisUrl===analysisUrl)renderDeathAnalysisSummary();}})();
+  deathAnalysisJobs.set(analysisUrl,job);renderDeathAnalysisSummary();await job;
 }
 function renderCapabilities() { const names={segmentation:'試合分割',matchOutcome:'勝敗発表',deaths:'本人デス判定',deathExplanation:'デスの状況・原因',playerWeapon:'自分のブキ',playerCounts:'生存人数',playerRoute:'プレイヤー動線',mapAllies:'味方位置・予測',enemyThreats:'敵の脅威範囲予測',enemyRoutes:'敵候補の予測動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).filter(([key])=>key in names).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key];const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }
 
@@ -279,6 +282,15 @@ function updatePlaybackUi() {
   const cursorLine=svgElement('line',{x1:cursorX,x2:cursorX,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-cursor'}),labelBg=svgElement('rect',{x:labelX-50,y:0,width:100,height:24,rx:8,class:'chart-cursor-label-bg'}),label=svgElement('text',{x:labelX,y:16,'text-anchor':'middle',class:'chart-cursor-label'});label.textContent=difference;elements.chartCursor.replaceChildren(cursorLine,labelBg,label);renderSpatialState(time);
 }
 
+function chartPointerState(event) {
+  const svg=event.currentTarget.closest('svg'),bounds=svg.getBoundingClientRect(),plotLeft=bounds.left+bounds.width*(chartBounds.left/1000),plotWidth=bounds.width*((chartBounds.right-chartBounds.left)/1000),ratio=Math.max(0,Math.min(1,(event.clientX-plotLeft)/plotWidth)),time=ratio*currentAnalysis.media.duration;
+  return { time, x:chartX(time) };
+}
+function renderChartHover(event) {
+  if(!currentAnalysis)return;const {time,x}=chartPointerState(event),game=gameCountAt(time),boxWidth=410,boxX=Math.max(chartBounds.left,Math.min(chartBounds.right-boxWidth,x-boxWidth/2)),line=svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-hover-line'}),background=svgElement('rect',{x:boxX,y:2,width:boxWidth,height:26,rx:8,class:'chart-hover-bg'}),label=svgElement('text',{x:boxX+boxWidth/2,y:19,'text-anchor':'middle',class:'chart-hover-text'});
+  label.textContent=game?`${formatTime(time)}｜自軍 ${game.teamCount}（ペナ ${game.teamPenalty||0}）｜相手 ${game.enemyCount}（ペナ ${game.enemyPenalty||0}）`:`${formatTime(time)}｜カウントデータなし`;elements.chartHover.replaceChildren(line,background,label);
+}
+
 async function refresh(){try{const nextRecordings=await(await fetch('/api/recordings')).json(),changed=JSON.stringify(nextRecordings)!==JSON.stringify(recordings);recordings=nextRecordings;if(changed)renderRecordings();}catch(error){console.error(error);}}
 function toggleVideoPlayback(){if(elements.video.paused)elements.video.play().catch(console.error);else elements.video.pause();}
 function seekBySeconds(seconds){if(!currentAnalysis)return;elements.video.currentTime=Math.max(0,Math.min(currentAnalysis.media.duration,(elements.video.currentTime||0)+seconds));updatePlaybackUi();}
@@ -286,7 +298,8 @@ elements.video.addEventListener('click',toggleVideoPlayback);elements.video.addE
 elements.deathAiButton.addEventListener('click',runDeathAiAnalysis);
 elements.deathReportButton.addEventListener('click',openDeathReport);
 document.addEventListener('keydown',event=>{if((event.key!=='ArrowLeft'&&event.key!=='ArrowRight')||elements.reviewView.hidden||elements.mapEditorModal.open)return;const editingTarget=event.target instanceof HTMLElement&&event.target.matches('input:not(#seek),textarea,[contenteditable="true"]');if(editingTarget)return;event.preventDefault();seekBySeconds(event.key==='ArrowLeft'?-1:1);});
-elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;const bounds=event.currentTarget.closest('svg').getBoundingClientRect(),plotLeft=bounds.left+bounds.width*(chartBounds.left/1000),plotWidth=bounds.width*((chartBounds.right-chartBounds.left)/1000);elements.video.currentTime=Math.max(0,Math.min(1,(event.clientX-plotLeft)/plotWidth))*currentAnalysis.media.duration;updatePlaybackUi();});
+elements.chartHit.addEventListener('pointermove',renderChartHover);elements.chartHit.addEventListener('pointerleave',()=>elements.chartHover.replaceChildren());
+elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;elements.video.currentTime=chartPointerState(event).time;updatePlaybackUi();});
 elements.strongEditButton.addEventListener('click',()=>{closeMapEditors({restore:true});openMapEditor('有利なポジションを編集');elements.strongEditPanel.hidden=false;createStrongPosition();});
 elements.strongNewButton.addEventListener('click',createStrongPosition);
 elements.strongTitleInput.addEventListener('input',()=>{if(draftStrongSpot){draftStrongSpot.title=elements.strongTitleInput.value;renderStrongPositions();}});

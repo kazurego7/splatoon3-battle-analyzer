@@ -56,9 +56,9 @@
             </div>
             <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数差 —</span></div>
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 260" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
-              <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g>
-              <rect id="chart-hit" x="34" y="26" width="944" height="226"></rect>
+            <svg id="analysis-chart" viewBox="0 0 1000 220" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
+              <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
+              <rect id="chart-hit" x="34" y="26" width="944" height="190"></rect>
             </svg>
             <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>自軍ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
           </section>

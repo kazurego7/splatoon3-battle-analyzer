@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from '../public/death-analysis-ui.js';
+import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from '../public/death-analysis-ui.js';
 
 test('death list keeps the existing eight-second pre-roll', () => {
   assert.equal(deathSeekTime({ time: 38.25 }), 30.25);
@@ -14,6 +14,18 @@ test('death seek offsets stay within the video', () => {
 
 test('death analysis endpoint removes query parameters', () => {
   assert.equal(deathAnalysisEndpoint('/api/analysis/r1/match-01.json?x=1'), '/api/analysis/r1/match-01.json/ai-death-sequence');
+});
+
+test('death analysis controls restore a pending job and never offer reanalysis', () => {
+  assert.deepEqual(deathAnalysisControlState({ deathCount: 7 }), {
+    showAnalyze: true, analyzeDisabled: false, analyzeLabel: 'AI分析', showReport: false, status: '', statusIsError: false,
+  });
+  assert.deepEqual(deathAnalysisControlState({ deathCount: 7, pending: true }), {
+    showAnalyze: true, analyzeDisabled: true, analyzeLabel: '分析中…', showReport: false,
+    status: 'AIがデス前後の映像を比較しています。数分かかることがあります…', statusIsError: false,
+  });
+  assert.equal(deathAnalysisControlState({ analysis: { patterns: [] }, deathCount: 7 }).showAnalyze, false);
+  assert.equal(deathAnalysisControlState({ analysis: { patterns: [] }, deathCount: 7 }).showReport, true);
 });
 
 test('report digest presents at most two concise failure patterns', () => {

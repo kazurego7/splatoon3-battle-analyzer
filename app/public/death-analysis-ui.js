@@ -6,6 +6,18 @@ export function deathAnalysisEndpoint(analysisUrl) {
   return `${String(analysisUrl || '').replace(/[?#].*$/, '').replace(/\/$/, '')}/ai-death-sequence`;
 }
 
+export function deathAnalysisControlState({ analysis, deathCount = 0, pending = false, error = '' }) {
+  const analyzed = Boolean(analysis);
+  return {
+    showAnalyze: !analyzed && deathCount > 0,
+    analyzeDisabled: pending || deathCount < 1,
+    analyzeLabel: pending ? '分析中…' : 'AI分析',
+    showReport: analyzed,
+    status: pending ? 'AIがデス前後の映像を比較しています。数分かかることがあります…' : String(error || ''),
+    statusIsError: !pending && Boolean(error),
+  };
+}
+
 function withJapaneseStop(value) {
   const text = String(value || '').trim().replace(/[。.!！?？]+$/, '');
   return text ? `${text}。` : '';
