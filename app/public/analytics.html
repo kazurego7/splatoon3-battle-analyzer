@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#08101b" />
+    <title>分析ダッシュボード | Splatoon Battle Review</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./analytics.css" />
+  </head>
+  <body class="analytics-page" data-screen="analytics">
+    <header class="dashboard-header">
+      <div class="dashboard-title-group">
+        <button class="app-menu-button" type="button" data-navigation-toggle aria-label="メニューを開く"><span></span><span></span><span></span></button>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="dashboard-title-copy">
+            <p class="dashboard-eyebrow">INTERACTIVE ANALYTICS</p>
+            <h1 id="dashboard-title">分析ダッシュボード</h1>
+            <p id="dashboard-meta">データを準備しています</p>
+          </div>
+        </div>
+      </div>
+      <div class="dashboard-actions">
+        <button id="cancel-dashboard-edit" class="quiet-button cancel-edit-button edit-only" type="button"><span>×</span> キャンセル</button>
+        <button id="toggle-dashboard-edit" class="mode-toggle-button" type="button" aria-pressed="false"><span>✎</span> 編集する</button>
+        <button id="refresh-analytics" class="quiet-button" type="button"><span>↻</span> データ更新</button>
+        <button id="add-question" class="add-question-button edit-only" type="button"><span>＋</span> グラフ・表を追加</button>
+      </div>
+    </header>
+
+    <aside class="dashboard-sidebar" aria-label="ダッシュボードメニュー">
+      <div class="sidebar-section">
+        <div class="sidebar-label-row"><span>ダッシュボード</span><button id="new-dashboard" class="edit-only" type="button" aria-label="新しいダッシュボード">＋</button></div>
+        <select id="dashboard-select" class="dashboard-select" aria-label="表示するダッシュボード"></select>
+        <button id="rename-dashboard" class="sidebar-action edit-only" type="button"><span>✎</span> 名前を変更</button>
+      </div>
+
+      <div class="sidebar-section question-shortcuts edit-only">
+        <span class="sidebar-caption">すぐに検証する</span>
+        <button type="button" data-question-template="stage-opponent"><i>◎</i><span>ステージ × 相手ブキ<small>敗北率を比較</small></span></button>
+        <button type="button" data-question-template="disadvantage-loss"><i>↘</i><span>人数不利の長さ<small>敗北との関係</small></span></button>
+        <button type="button" data-question-template="deaths-loss"><i>×</i><span>デス数<small>敗北との関係</small></span></button>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+      <div class="data-health" id="data-health">
+        <div><span>データ</span><strong id="data-record-count">—</strong></div>
+        <div class="coverage-track"><i id="coverage-fill"></i></div>
+        <p id="coverage-note">データを読み込んでいます</p>
+      </div>
+    </aside>
+
+    <main class="dashboard-main">
+      <section class="global-filter-bar" aria-label="ダッシュボード全体の絞り込み">
+        <div class="filter-bar-heading">
+          <span><i>⌁</i> 絞り込み</span>
+          <strong id="filtered-record-count">全試合</strong>
+        </div>
+        <div class="global-filter-controls">
+          <label>開始日<input id="global-date-from" type="date" /></label>
+          <label>終了日<input id="global-date-to" type="date" /></label>
+          <label>ステージ<select id="global-stage"><option value="">すべて</option></select></label>
+          <label>ルール<select id="global-rule"><option value="">すべて</option></select></label>
+          <label>自分のブキ<select id="global-self-weapon"><option value="">すべて</option></select></label>
+          <label>相手のブキ<select id="global-opponent-weapon"><option value="">すべて</option></select></label>
+          <label>勝敗<select id="global-outcome"><option value="">すべて</option><option value="win">WIN</option><option value="lose">LOSE</option></select></label>
+        </div>
+        <button id="reset-global-filters" class="reset-filter-button" type="button">すべて解除</button>
+      </section>
+
+      <section class="dashboard-context" aria-live="polite">
+        <div class="view-mode-context"><span class="live-dot"></span><strong>リアルタイム集計</strong><small>条件を変えるとすべてのカードが更新されます</small></div>
+        <div class="edit-mode-context"><span>✥</span><strong>編集モード</strong><small>カードをドラッグして移動・端をドラッグしてサイズ変更</small></div>
+        <div class="active-filter-chips" id="active-filter-chips"></div>
+      </section>
+
+      <section id="dashboard-grid" class="dashboard-grid" aria-label="分析カード"></section>
+      <section id="dashboard-empty" class="dashboard-empty" hidden>
+        <div>＋</div><h2>最初のグラフや表を作りましょう</h2><p>集計したい指標と切り口を選ぶだけで、分析カードを追加できます。</p>
+        <button type="button" class="add-question-button edit-only" data-open-question>グラフ・表を追加</button>
+      </section>
+    </main>
+
+    <dialog id="question-dialog" class="question-dialog">
+      <form id="question-form" method="dialog">
+        <header class="dialog-header">
+          <div><p>CARD BUILDER</p><h2 id="question-dialog-title">グラフ・表を追加</h2><span>指標と切り口を選ぶと、分析カードをすぐに確認できます。</span></div>
+          <button class="dialog-close" type="button" data-close-dialog="question-dialog" aria-label="閉じる">×</button>
+        </header>
+
+        <div class="question-dialog-body">
+          <section class="question-editor">
+            <div class="builder-section">
+              <div class="builder-heading"><span>1</span><div><strong>テンプレートから開始</strong><small>よく使う仮説を1クリックで設定</small></div></div>
+              <div id="question-templates" class="question-template-grid"></div>
+            </div>
+
+            <div class="builder-section">
+              <div class="builder-heading"><span>2</span><div><strong>集計方法を決める</strong><small>何を、どの単位で比べるか</small></div></div>
+              <div class="builder-fields">
+                <label class="field-wide">カード名<input id="question-title" required maxlength="80" placeholder="例：デス数と敗北率" /></label>
+                <label>指標<select id="question-metric"></select></label>
+                <label>切り口<select id="question-dimension"></select></label>
+                <label>表示<select id="question-chart"></select></label>
+                <label>最小試合数<input id="question-minimum" type="number" min="1" max="99" value="1" /></label>
+                <label>並び順<select id="question-sort"><option value="auto">自動</option><option value="desc">値が大きい順</option><option value="asc">値が小さい順</option><option value="matches">試合数順</option><option value="natural">自然な順序</option></select></label>
+              </div>
+            </div>
+
+            <details id="card-filter-section" class="builder-section card-filter-section">
+              <summary><span>3</span><div><strong>このカードだけの条件</strong><small id="card-filter-summary">条件なし</small></div><i>⌄</i></summary>
+              <div class="builder-fields card-filter-fields">
+                <label>ステージ<select id="question-stage"><option value="">すべて</option></select></label>
+                <label>ルール<select id="question-rule"><option value="">すべて</option></select></label>
+                <label>自分のブキ<select id="question-self-weapon"><option value="">すべて</option></select></label>
+                <label>相手のブキ<select id="question-opponent-weapon"><option value="">すべて</option></select></label>
+                <label>勝敗<select id="question-outcome"><option value="">すべて</option><option value="win">WIN</option><option value="lose">LOSE</option></select></label>
+                <label>最小デス<input id="question-deaths-min" type="number" min="0" max="99" placeholder="指定なし" /></label>
+                <label>最大デス<input id="question-deaths-max" type="number" min="0" max="99" placeholder="指定なし" /></label>
+                <label>人数不利 最小秒<input id="question-disadvantage-min" type="number" min="0" max="7200" placeholder="指定なし" /></label>
+                <label>人数不利 最大秒<input id="question-disadvantage-max" type="number" min="0" max="7200" placeholder="指定なし" /></label>
+              </div>
+            </details>
+          </section>
+
+          <aside class="question-preview-pane">
+            <div class="preview-heading"><span>プレビュー</span><strong id="preview-record-count">0試合</strong></div>
+            <div id="question-preview" class="question-preview"></div>
+            <p id="question-preview-note">条件を変えると即座に更新されます。</p>
+          </aside>
+        </div>
+
+        <footer class="dialog-actions">
+          <button class="quiet-button" type="button" data-close-dialog="question-dialog">キャンセル</button>
+          <button id="save-question" class="add-question-button" type="submit"><span>＋</span> ダッシュボードに追加</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="dashboard-dialog" class="name-dialog">
+      <form id="dashboard-form" method="dialog">
+        <header><div><p>DASHBOARD</p><h2 id="dashboard-dialog-title">新しいダッシュボード</h2></div><button class="dialog-close" type="button" data-close-dialog="dashboard-dialog" aria-label="閉じる">×</button></header>
+        <label>名前<input id="dashboard-name" required maxlength="60" autocomplete="off" /></label>
+        <footer><button class="quiet-button" type="button" data-close-dialog="dashboard-dialog">キャンセル</button><button class="add-question-button" type="submit">保存</button></footer>
+      </form>
+    </dialog>
+
+    <div id="toast" class="dashboard-toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./navigation.js"></script>
+    <script type="module" src="./analytics.js"></script>
+  </body>
+</html>

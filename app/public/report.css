@@ -1,4 +1,4 @@
-.report-body { min-height:100vh; overflow-y:auto; color:var(--text); background:radial-gradient(circle at 18% 0,rgba(39,213,255,.12),transparent 28%),#070a11; }
+body.report-body { height:auto; min-height:100vh; overflow-y:auto; color:var(--text); background:radial-gradient(circle at 18% 0,rgba(39,213,255,.12),transparent 28%),#070a11; }
 .report-header { position:sticky; z-index:20; top:0; display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:70px; padding:10px clamp(18px,4vw,60px); border-bottom:1px solid var(--line); background:rgba(7,10,17,.9); backdrop-filter:blur(14px); }
 .report-brand { display:flex; align-items:center; gap:12px; }.report-brand p,.report-brand h1 { margin:0; }.report-brand p { color:var(--cyan); font-size:10px; font-weight:850; letter-spacing:.12em; }.report-brand h1 { font-size:19px; }
 .report-header button { min-height:36px; padding:0 13px; border:1px solid var(--line); border-radius:9px; color:var(--text); background:rgba(255,255,255,.04); font-weight:800; }

@@ -207,11 +207,11 @@ export function consolidateOutcomeObservations(observations, { minimumAgreement 
   };
 }
 
-export async function analyzeOutcomeLocally({ source, matchStart, activeEnd, matchEnd }) {
+export async function analyzeOutcomeLocally({ source, matchStart, activeEnd, matchEnd, sampler = sampleRgbWindow }) {
   const anchor = Math.min(activeEnd, matchEnd);
   const scanStart = Math.max(matchStart, anchor - 35);
   let scanEnd = Math.min(matchEnd, Math.max(scanStart + 1, anchor + 8));
-  let samples = await sampleRgbWindow(source, scanStart, scanEnd, {
+  let samples = await sampler(source, scanStart, scanEnd, {
     interval: 1,
     onFrame: (frame, width, height, time) => analyzeOutcomeFrame(frame, width, height, time),
   });
@@ -219,8 +219,12 @@ export async function analyzeOutcomeLocally({ source, matchStart, activeEnd, mat
   // Some older or low-HUD matches have a coarse activeEnd before the actual
   // announcement. Only pay for a later scan when the primary window missed it.
   if (!outcome && matchEnd - scanEnd >= 2) {
-    const fallbackEnd = Math.min(matchEnd, anchor + 45);
-    const fallback = await sampleRgbWindow(source, scanEnd, fallbackEnd, {
+    // Long victory animations can delay the WIN/LOSE title for nearly a
+    // minute. This second pass only runs after the cheap primary scan misses,
+    // so inspect the remainder of the bounded match instead of cutting off a
+    // valid late announcement.
+    const fallbackEnd = matchEnd;
+    const fallback = await sampler(source, scanEnd, fallbackEnd, {
       interval: 1,
       onFrame: (frame, width, height, time) => analyzeOutcomeFrame(frame, width, height, time),
     });

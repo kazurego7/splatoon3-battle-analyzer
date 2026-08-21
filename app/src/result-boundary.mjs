@@ -1,29 +1,40 @@
 import { sampleRgbWindow } from './ffmpeg.mjs';
 import { detectResultScreen } from './result-analysis.mjs';
-import { findResultTable } from './player-identity.mjs';
+import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
 
-export const resultBoundaryModelVersion = 3;
+export const resultBoundaryModelVersion = 6;
+const DEFAULT_CONCURRENCY = positiveConcurrency(process.env.VIDEO_BOUNDARY_CONCURRENCY, 2);
+
+function stablePersonalRuns(observations, interval) {
+  const runs = [];
+  let current = [];
+  for (const observation of observations.filter(item => item?.screenType === 'personal')) {
+    if (current.length && observation.time - current.at(-1).time > interval * 1.5) {
+      if (current.length >= 2) runs.push(current);
+      current = [];
+    }
+    current.push(observation);
+  }
+  if (current.length >= 2) runs.push(current);
+  return runs;
+}
 
 export function chooseResultBoundary(observations, { fallbackEnd, searchEnd, interval = 1 } = {}) {
-  const detected = observations.filter(observation => observation?.screenType);
-  const preferred = detected.filter(observation => observation.screenType === 'overall');
-  const candidates = preferred.length
-    ? preferred
-    : detected.filter(observation => observation.screenType === 'personal');
-  if (!candidates.length) return {
+  const runs = stablePersonalRuns(observations, interval);
+  if (!runs.length) return {
     end: fallbackEnd,
     resultBoundary: { screenType: null, detection: 'heuristic-fallback' },
   };
 
-  const last = candidates.reduce((latest, observation) => observation.time > latest.time ? observation : latest);
+  const last = runs.at(-1).at(-1);
   return {
     // A sample represents the following interval. The small tail keeps the last
     // visible result frame and its transition without retaining lobby footage.
     end: Number(Math.min(searchEnd, last.time + interval + 0.25).toFixed(3)),
     resultBoundary: {
-      screenType: last.screenType,
+      screenType: 'personal',
       detectedAt: Number(last.time.toFixed(3)),
-      detection: last.screenType === 'overall' ? 'overall-result-priority' : 'personal-result-fallback',
+      detection: 'stable-personal-result',
     },
   };
 }
@@ -33,30 +44,33 @@ export async function refineResultBoundaries(source, segments, duration, {
   fineInterval = 0.25,
   sampler = sampleRgbWindow,
   onProgress,
+  concurrency = DEFAULT_CONCURRENCY,
 } = {}) {
-  const refined = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    const searchStart = Math.max(segment.start, segment.activeEnd - 12);
+  let completed = 0;
+  return mapWithConcurrency(segments, concurrency, async (segment, index) => {
+    // Results and victory animations can keep the coarse activity detector on
+    // until the next intro. Always inspect the full post-game window instead of
+    // assuming activeEnd is close to the end of gameplay.
+    const searchStart = Math.max(segment.start, Math.min(segment.activeEnd - 12, segment.end - 90));
     const searchEnd = Math.max(searchStart, Math.min(duration, segments[index + 1]?.start - 0.25 || duration));
     let observations = await sampler(source, searchStart, searchEnd, {
       interval,
       onFrame: (frame, width, height, time) => {
         const result = detectResultScreen(frame, time);
-        return { time, screenType: result?.screenType || null };
+        return { time, screenType: result?.screenType || null, confidence: result?.confidence ?? null };
       },
     });
     let boundaryInterval = interval;
-    if (!observations.some(observation => observation.screenType === 'overall')) {
-      const fineOverall = await sampler(source, searchStart, searchEnd, {
+    if (!stablePersonalRuns(observations, interval).length) {
+      const finePersonal = await sampler(source, searchStart, searchEnd, {
         interval: fineInterval,
-        onFrame: (frame, width, height, time) => ({
-          time,
-          screenType: findResultTable(frame, width, height) ? 'overall' : null,
-        }),
+        onFrame: (frame, width, height, time) => {
+          const result = detectResultScreen(frame, time);
+          return { time, screenType: result?.screenType || null, confidence: result?.confidence ?? null };
+        },
       });
-      if (fineOverall.some(observation => observation.screenType === 'overall')) {
-        observations = fineOverall;
+      if (stablePersonalRuns(finePersonal, fineInterval).length) {
+        observations = finePersonal;
         boundaryInterval = fineInterval;
       }
     }
@@ -65,8 +79,8 @@ export async function refineResultBoundaries(source, segments, duration, {
       searchEnd,
       interval: boundaryInterval,
     });
-    refined.push({ ...segment, ...boundary });
-    onProgress?.((index + 1) / segments.length, index + 1, segments.length);
-  }
-  return refined;
+    completed += 1;
+    onProgress?.(completed / segments.length, completed, segments.length);
+    return { ...segment, ...boundary };
+  });
 }

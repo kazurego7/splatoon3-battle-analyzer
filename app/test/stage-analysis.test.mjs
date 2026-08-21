@@ -20,7 +20,7 @@ test('accepts exact closed-set stage and rule labels and maps the asset', () => 
     stageAsset: 'ナメロウ金属_アサリ.webp',
     confidence: 0.97,
     evidence: '見出し',
-    source: 'result-header-codex-vision',
+    source: 'match-intro-codex-vision',
   }]);
 });
 

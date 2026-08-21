@@ -4,25 +4,34 @@ import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
 import { ensureFfmpeg, extractJpeg, extractJpegCrop, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
 import { classifySamples, detectMatchSegments } from './segmentation.mjs';
-import { describeSelfDeaths, detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
-import { findIdentityResult, identifySelfHudSlot } from './player-identity.mjs';
-import { analyzeGameCountFrame, detectGameCounts, gameCountModelVersion } from './game-count-vision.mjs';
-import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame } from './map-analysis.mjs';
+import { refineIntroBoundaries } from './intro-boundary.mjs';
+import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
+import { identifySelfHudSlot } from './player-identity.mjs';
+import { analyzeGameCountFrame, detectGameCounts, gameCountFrameRegionForRule, gameCountModelVersion } from './game-count-vision.mjs';
+import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame, stabilizeMapVisibility } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
-import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from './analysis-overrides.mjs';
+import { attachRespawnEvidence } from './analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
-import { identifyResultWeapon, weaponCatalogMetadata } from './weapon-analysis.mjs';
+import { weaponCatalogEntries, weaponCatalogMetadata } from './weapon-analysis.mjs';
 import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
-import { analyzeResultLocally, chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-analysis.mjs';
+import { chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-analysis.mjs';
 import { refineResultBoundaries, resultBoundaryModelVersion } from './result-boundary.mjs';
 import { analyzeRecordingStages } from './stage-analysis.mjs';
+import { analyzeRecordingPersonalResults } from './personal-result-analysis.mjs';
+import { analyzeRecordingWeaponRosters } from './weapon-roster-analysis.mjs';
 import { analyzeOutcomeLocally, outcomeModelVersion } from './outcome-analysis.mjs';
+import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
+
+const CLIP_CONCURRENCY_OVERRIDE = process.env.VIDEO_CLIP_CONCURRENCY
+  ? positiveConcurrency(process.env.VIDEO_CLIP_CONCURRENCY, 2)
+  : null;
+const ANALYSIS_CONCURRENCY = positiveConcurrency(process.env.VIDEO_ANALYSIS_CONCURRENCY, 2);
 
 function slug(value) {
   return value.normalize('NFKC').replace(/\.[^.]+$/, '').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
-function recordingId(fileName, size) {
+export function recordingId(fileName, size) {
   const digest = createHash('sha1').update(`${fileName}:${size}`).digest('hex').slice(0, 8);
   return `${slug(fileName) || 'recording'}-${digest}`;
 }
@@ -51,25 +60,55 @@ function matchesGameplayCache(cacheKey, segment) {
 async function encoderArgs(codec) {
   const { stdout } = await runFfmpeg(['-hide_banner', '-encoders']);
   if (codec === 'hevc') {
-    if (stdout.includes('hevc_nvenc')) return ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-cq', '18', '-tag:v', 'hvc1'];
-    if (stdout.includes('libx265')) return ['-c:v', 'libx265', '-preset', 'veryfast', '-crf', '18', '-tag:v', 'hvc1'];
+    if (stdout.includes('hevc_nvenc')) return {
+      input: ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'],
+      output: ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-cq', '18', '-tag:v', 'hvc1'],
+      pixelFormat: [],
+    };
+    if (stdout.includes('libx265')) return {
+      input: [],
+      output: ['-c:v', 'libx265', '-preset', 'veryfast', '-crf', '18', '-tag:v', 'hvc1'],
+      pixelFormat: ['-pix_fmt', 'yuv420p'],
+    };
   }
   if (codec === 'h264') {
-    if (stdout.includes('h264_nvenc')) return ['-c:v', 'h264_nvenc', '-preset', 'p5', '-cq', '18'];
-    if (stdout.includes('libx264')) return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18'];
+    if (stdout.includes('h264_nvenc')) return {
+      input: ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'],
+      output: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-cq', '18'],
+      pixelFormat: [],
+    };
+    if (stdout.includes('libx264')) return {
+      input: [],
+      output: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18'],
+      pixelFormat: ['-pix_fmt', 'yuv420p'],
+    };
   }
   throw new Error(`入力コーデック ${codec} を維持できるエンコーダーがありません`);
 }
 
-async function cutMatch(source, destination, segment, codecArgs) {
+async function cutMatch(source, destination, segment, encoder) {
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  await runFfmpeg([
+  const common = [
     '-hide_banner', '-loglevel', 'error', '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
-    '-ss', segment.start.toFixed(3), '-i', source,
+    '-ss', segment.start.toFixed(3),
+  ];
+  const output = [
     '-t', (segment.end - segment.start).toFixed(3), '-map', '0:v:0', '-map', '0:a?',
-    ...codecArgs, '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k',
+    ...encoder.output, ...encoder.pixelFormat, '-c:a', 'aac', '-b:a', '192k',
     '-movflags', '+faststart', '-y', destination,
-  ]);
+  ];
+  try {
+    await runFfmpeg([...common, ...encoder.input, '-i', source, ...output]);
+  } catch (error) {
+    if (!encoder.input.length) throw error;
+    await fs.rm(destination, { force: true });
+    await runFfmpeg([
+      ...common, '-i', source,
+      '-t', (segment.end - segment.start).toFixed(3), '-map', '0:v:0', '-map', '0:a?',
+      ...encoder.output, '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k',
+      '-movflags', '+faststart', '-y', destination,
+    ]);
+  }
   return probeMedia(destination);
 }
 
@@ -98,6 +137,18 @@ async function reusableMatches(id, finalClips, segments) {
       matches.push(matchRecord(id, segments[index], number, clipMedia));
     }
     return matches;
+  } catch {
+    return null;
+  }
+}
+
+async function reusableMatch(id, finalClips, segment, number) {
+  try {
+    const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
+    const clipMedia = await probeMedia(path.join(finalClips, fileName));
+    const expectedDuration = segment.end - segment.start;
+    if (!clipMedia.audioCodec || Math.abs(clipMedia.duration - expectedDuration) > 0.75) return null;
+    return matchRecord(id, segment, number, clipMedia);
   } catch {
     return null;
   }
@@ -224,7 +275,8 @@ export class Pipeline {
     }
     const classified = classifySamples(samples, 2);
     await fs.writeFile(path.join(workDir, 'classified.json'), `${JSON.stringify(classified)}\n`);
-    const coarseSegments = detectMatchSegments(classified, media.duration, 2);
+    const detectedSegments = detectMatchSegments(classified, media.duration, 2);
+    const coarseSegments = await refineIntroBoundaries(recording.source, detectedSegments, media.duration);
     if (!coarseSegments.length) throw new Error('試合区間を検出できませんでした。HUD検出しきい値の調整が必要です');
     const boundaryCache = path.join(workDir, 'result-boundaries.json');
     const coarseCacheKey = coarseSegments.map(segmentCacheKey).join('|');
@@ -256,48 +308,87 @@ export class Pipeline {
     if (matches) {
       await this.store.patch(id, { status: 'splitting', phase: '分割済み動画を確認中', progress: 0.65 });
     } else {
-      const codecArgs = await encoderArgs(media.codec);
-      matches = [];
-      for (let index = 0; index < segments.length; index += 1) {
+      const encoder = await encoderArgs(media.codec);
+      const clipConcurrency = CLIP_CONCURRENCY_OVERRIDE ?? (encoder.input.length ? 1 : 2);
+      await fs.rm(temporaryClips, { recursive: true, force: true });
+      await fs.mkdir(temporaryClips, { recursive: true });
+      let completedClips = 0;
+      matches = await mapWithConcurrency(segments, clipConcurrency, async (segment, index) => {
         const number = index + 1;
         const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
         const temporary = path.join(temporaryClips, fileName);
         await this.store.patch(id, {
           status: 'splitting',
           phase: `試合${number}/${segments.length}を分割中`,
-          progress: 0.3 + (index / segments.length) * 0.35,
+          progress: 0.3 + (completedClips / segments.length) * 0.35,
         });
-        const clipMedia = await cutMatch(recording.source, temporary, segments[index], codecArgs);
-        if (!clipMedia.audioCodec) throw new Error(`試合${number}の音声ストリームを確認できませんでした`);
-        matches.push(matchRecord(id, segments[index], number, clipMedia));
-      }
+        const reusable = await reusableMatch(id, finalClips, segment, number);
+        let match;
+        if (reusable) {
+          await fs.copyFile(path.join(finalClips, fileName), temporary);
+          match = reusable;
+        } else {
+          const clipMedia = await cutMatch(recording.source, temporary, segment, encoder);
+          if (!clipMedia.audioCodec) throw new Error(`試合${number}の音声ストリームを確認できませんでした`);
+          match = matchRecord(id, segment, number, clipMedia);
+        }
+        completedClips += 1;
+        await this.store.patch(id, {
+          status: 'splitting',
+          phase: `試合${completedClips}/${segments.length}を分割済み`,
+          progress: 0.3 + (completedClips / segments.length) * 0.35,
+        });
+        return match;
+      });
       await fs.rm(finalClips, { recursive: true, force: true });
       await fs.rename(temporaryClips, finalClips);
     }
     await this.store.patch(id, { matches, status: 'analyzing', phase: '各試合を分析中', progress: 0.68 });
+    let reportedAnalysisProgress = 0.68;
+    const updateAnalysisProgress = (phase, progress) => {
+      reportedAnalysisProgress = Math.max(reportedAnalysisProgress, progress);
+      return this.store.patch(id, {
+        status: 'analyzing',
+        phase,
+        progress: reportedAnalysisProgress,
+      });
+    };
 
     const analysisDir = path.join(ANALYSIS_ROOT, id);
     const thumbnailDir = path.join(THUMBNAIL_ROOT, id);
     await Promise.all([fs.mkdir(analysisDir, { recursive: true }), fs.mkdir(thumbnailDir, { recursive: true })]);
-    const resultAnalyses = [];
-    for (let index = 0; index < matches.length; index += 1) {
-      const match = matches[index];
-      try {
-        resultAnalyses.push(await analyzeResultLocally({
-          source: recording.source,
-          matchStart: match.start,
-          activeEnd: segments[index].activeEnd,
-          matchEnd: match.end,
-          directResultTime: null,
-          preferredScreenType: segments[index].resultBoundary?.screenType,
-          workDir,
-          matchNumber: index + 1,
-        }));
-      } catch (error) {
-        console.warn(`Result analysis unavailable for match ${index + 1}: ${error.message}`);
-        resultAnalyses.push(null);
-      }
+    let personalResults = [];
+    try {
+      await this.store.patch(id, { status: 'analyzing', phase: '個人リザルトを読取中', progress: 0.68 });
+      personalResults = await analyzeRecordingPersonalResults({ source: recording.source, segments, workDir });
+    } catch (error) {
+      console.warn(`Personal result analysis unavailable: ${error.message}`);
     }
+    const personalResultsByMatch = new Map(personalResults.map(result => [result.id, result]));
+    const personalWeaponCounts = new Map();
+    for (const result of personalResults.filter(result => result.confidence >= 0.9)) {
+      personalWeaponCounts.set(result.weapon, (personalWeaponCounts.get(result.weapon) || 0) + 1);
+    }
+    const rankedPersonalWeapons = [...personalWeaponCounts.entries()].sort((left, right) => right[1] - left[1]);
+    const recordingPersonalWeapon = rankedPersonalWeapons[0]?.[1] >= 2
+      && rankedPersonalWeapons[0][1] > (rankedPersonalWeapons[1]?.[1] || 0)
+      ? { name: rankedPersonalWeapons[0][0], observations: rankedPersonalWeapons[0][1] }
+      : null;
+    const resultAnalyses = matches.map((match, index) => {
+      const result = personalResultsByMatch.get(`match-${String(match.number).padStart(2, '0')}`);
+      if (!result) return null;
+      return {
+        found: true,
+        screenType: 'personal',
+        killCount: result.kills,
+        deathCount: result.deaths,
+        specialCount: result.specials,
+        time: Number((segments[index].resultBoundary.detectedAt - match.start).toFixed(2)),
+        evidence: result.evidence,
+        confidence: result.confidence,
+        source: result.source,
+      };
+    });
     const outcomeCache = path.join(workDir, 'outcomes.json');
     const outcomeCacheKey = segments.map(segmentCacheKey).join('|');
     let outcomeAnalyses;
@@ -308,25 +399,26 @@ export class Pipeline {
       }
       outcomeAnalyses = cached.outcomes;
     } catch {
-      outcomeAnalyses = [];
-      for (let index = 0; index < matches.length; index += 1) {
-        await this.store.patch(id, {
-          status: 'analyzing',
-          phase: `試合${index + 1}/${matches.length}の勝敗発表を検出中`,
-          progress: 0.68,
-        });
+      let completedOutcomes = 0;
+      outcomeAnalyses = await mapWithConcurrency(matches, ANALYSIS_CONCURRENCY, async (match, index) => {
+        await updateAnalysisProgress(
+          `試合${index + 1}/${matches.length}の勝敗発表を検出中`,
+          0.68 + (completedOutcomes / matches.length) * 0.01,
+        );
         try {
-          outcomeAnalyses.push(await analyzeOutcomeLocally({
+          return await analyzeOutcomeLocally({
             source: recording.source,
-            matchStart: matches[index].start,
+            matchStart: match.start,
             activeEnd: segments[index].activeEnd,
-            matchEnd: matches[index].end,
-          }));
+            matchEnd: match.end,
+          });
         } catch (error) {
           console.warn(`Outcome analysis unavailable for match ${index + 1}: ${error.message}`);
-          outcomeAnalyses.push(null);
+          return null;
+        } finally {
+          completedOutcomes += 1;
         }
-      }
+      });
       await fs.writeFile(outcomeCache, `${JSON.stringify({
         version: outcomeModelVersion,
         cacheKey: outcomeCacheKey,
@@ -335,87 +427,214 @@ export class Pipeline {
     }
     let stageResults = [];
     try {
-      await this.store.patch(id, { status: 'analyzing', phase: 'リザルトからルールとステージを読取中', progress: 0.68 });
+      await this.store.patch(id, { status: 'analyzing', phase: '試合開始画面からルールとステージを読取中', progress: 0.68 });
+      const stageFallbackIndexes = matches
+        .map((_match, index) => ({ index, result: personalResultsByMatch.get(`match-${String(index + 1).padStart(2, '0')}`) }))
+        .filter(item => !item.result || item.result.confidence < 0.9)
+        .map(item => item.index);
       stageResults = await analyzeRecordingStages({
         source: recording.source,
         segments,
-        resultTimes: resultAnalyses.map((result, index) => result ? matches[index].start + result.time : null),
         workDir,
+        matchIndexes: stageFallbackIndexes,
       });
     } catch (error) {
       console.warn(`Stage analysis unavailable: ${error.message}`);
     }
     const stageResultsByMatch = new Map(stageResults.map(result => [result.id, result]));
+    for (const result of personalResults.filter(result => result.confidence >= 0.9)) {
+      stageResultsByMatch.set(result.id, {
+        id: result.id,
+        stage: result.stage,
+        rule: result.rule,
+        confidence: result.confidence,
+        evidence: result.evidence,
+        source: result.source,
+      });
+    }
+    const countRules = new Set(['エリア', 'ヤグラ', 'ホコ', 'アサリ']);
+    const directlyDetectedRules = matches.map((match, index) => {
+      const automatic = stageResultsByMatch.get(`match-${String(match.number).padStart(2, '0')}`);
+      return automatic?.confidence >= 0.65 && countRules.has(automatic.rule) ? automatic.rule : null;
+    });
+    // Result headers can be absent after a knockout or a schedule update. A
+    // recording normally contains consecutive matches from the same rotation,
+    // so retain the nearest confidently read rule for the HUD layout only.
+    const gameCountRules = directlyDetectedRules.map((rule, index) => {
+      if (rule) return rule;
+      for (let distance = 1; distance < matches.length; distance += 1) {
+        if (directlyDetectedRules[index - distance]) return directlyDetectedRules[index - distance];
+        if (directlyDetectedRules[index + distance]) return directlyDetectedRules[index + distance];
+      }
+      return null;
+    });
+    const directIdentityResults = await mapWithConcurrency(matches, ANALYSIS_CONCURRENCY, async (match, index) => {
+      const detectedAt = segments[index].resultBoundary?.detectedAt;
+      if (!Number.isFinite(detectedAt)) {
+        return null;
+      }
+      const frame = await extractRgbFrame(recording.source, detectedAt);
+      return {
+        time: detectedAt,
+        frame,
+        personalResult: personalResultsByMatch.get(`match-${String(index + 1).padStart(2, '0')}`) || null,
+      };
+    });
     let previousIdentityResult = null;
-    let previousWeaponEvidence = null;
-    for (let index = 0; index < matches.length; index += 1) {
-      const match = matches[index];
+    const identityReferences = directIdentityResults.map(result => {
+      const reference = result || previousIdentityResult;
+      if (result) previousIdentityResult = result;
+      return reference;
+    });
+    const expectedRosterWeapons = new Map(matches.map((match, index) => [
+      `match-${String(match.number).padStart(2, '0')}`,
+      directIdentityResults[index]?.personalResult?.weapon || recordingPersonalWeapon?.name || null,
+    ]));
+    let weaponRostersByMatch = new Map();
+    try {
+      await this.store.patch(id, { status: 'analyzing', phase: 'バトル開始直後の味方・相手ブキを照合中', progress: 0.68 });
+      weaponRostersByMatch = await analyzeRecordingWeaponRosters({
+        matches,
+        clipRoot: finalClips,
+        workDir,
+        expectedWeapons: expectedRosterWeapons,
+      });
+    } catch (error) {
+      console.warn(`Opening weapon roster analysis unavailable: ${error.message}`);
+    }
+    const scanConcurrency = matches.length > 1 ? 1 : ANALYSIS_CONCURRENCY;
+    let completedMatches = 0;
+    await mapWithConcurrency(matches, ANALYSIS_CONCURRENCY, async (match, index) => {
       const cacheKey = segmentCacheKey(segments[index]);
       const gameplayKey = gameplayCacheKey(segments[index]);
       const clipPath = path.join(finalClips, match.fileName);
       const thumbnailName = `match-${String(match.number).padStart(2, '0')}.jpg`;
       await extractJpeg(clipPath, Math.min(35, Math.max(1, match.duration / 3)), path.join(thumbnailDir, thumbnailName), 640);
-      const hudCache = path.join(workDir, `battle-hud-match-${String(match.number).padStart(2, '0')}.json`);
-      let battleHud;
-      try {
-        const cached = JSON.parse(await fs.readFile(hudCache, 'utf8'));
-        if (cached.version !== 2 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length || !cached.samples[0].self) throw new Error('古いHUDキャッシュ');
-        battleHud = cached.samples;
-      } catch {
-        battleHud = await sampleBattleHud(clipPath, match.duration, {
-          onProgress: ratio => this.store.patch(id, {
-            status: 'analyzing',
-            phase: `試合${index + 1}/${matches.length}の生存人数を検出中`,
-            progress: 0.68 + ((index + ratio) / matches.length) * 0.3,
-          }).catch(console.error),
-        });
-        await fs.writeFile(hudCache, `${JSON.stringify({ version: 2, cacheKey: gameplayKey, samples: battleHud })}\n`);
-      }
       const gameplayEnd = Math.max(0, segments[index].activeEnd - match.start);
-      const identityEnd = match.end;
-      await this.store.patch(id, {
-        status: 'analyzing',
-        phase: `試合${index + 1}/${matches.length}の本人ブキを照合中`,
-        progress: 0.68 + ((index + 0.82) / matches.length) * 0.3,
-      });
+      const automaticStage = stageResultsByMatch.get(`match-${String(match.number).padStart(2, '0')}`);
+      const acceptedStage = automaticStage?.confidence >= 0.65 ? automaticStage : null;
+      const gameCountRule = gameCountRules[index];
+      const weaponRoster = weaponRostersByMatch.get(`match-${String(match.number).padStart(2, '0')}`) || null;
+      const hudCache = path.join(workDir, `battle-hud-match-${String(match.number).padStart(2, '0')}.json`);
+      const respawnCache = path.join(workDir, `respawn-hud-match-${String(match.number).padStart(2, '0')}.json`);
+      const perceptionCache = path.join(workDir, `perception-match-${String(match.number).padStart(2, '0')}.json`);
+      const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
+      const mapCache = path.join(workDir, `map-candidates-match-${String(match.number).padStart(2, '0')}.json`);
+      const [battleHud, respawnSamples, perceptionSamples, gameCountSamples, mapCandidates] = await mapWithConcurrency([
+        async () => {
+          try {
+            const cached = JSON.parse(await fs.readFile(hudCache, 'utf8'));
+            if (cached.version !== 3 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length || !cached.samples[0].self) throw new Error('古いHUDキャッシュ');
+            return cached.samples;
+          } catch {
+            const samples = await sampleBattleHud(clipPath, match.duration, {
+              onProgress: ratio => updateAnalysisProgress(
+                `試合${index + 1}/${matches.length}の生存人数を検出中`,
+                0.68 + ((index + ratio) / matches.length) * 0.3,
+              ).catch(console.error),
+            });
+            await fs.writeFile(hudCache, `${JSON.stringify({ version: 3, cacheKey: gameplayKey, samples })}\n`);
+            return samples;
+          }
+        },
+        async () => {
+          try {
+            const cached = JSON.parse(await fs.readFile(respawnCache, 'utf8'));
+            if (cached.modelVersion !== respawnModelVersion || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古い復活UIキャッシュ');
+            return cached.samples;
+          } catch {
+            const samples = await sampleRespawnHud(clipPath, match.duration);
+            await fs.writeFile(respawnCache, `${JSON.stringify({ modelVersion: respawnModelVersion, cacheKey: gameplayKey, samples })}\n`);
+            return samples;
+          }
+        },
+        async () => {
+          try {
+            const cached = JSON.parse(await fs.readFile(perceptionCache, 'utf8'));
+            if (cached.version !== 1 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古い映像認識キャッシュ');
+            return cached.samples;
+          } catch {
+            let previousPerceptionFrame = null;
+            const samples = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+              interval: 0.5,
+              width: 480,
+              height: 270,
+              onFrame: (frame, width, height, time) => {
+                const result = analyzeEnemyColorFrame(frame, previousPerceptionFrame, width, height, time);
+                previousPerceptionFrame = frame;
+                return result;
+              },
+            });
+            await fs.writeFile(perceptionCache, `${JSON.stringify({ version: 1, cacheKey: gameplayKey, samples })}\n`);
+            return samples;
+          }
+        },
+        async () => {
+          try {
+            const cached = JSON.parse(await fs.readFile(gameCountCache, 'utf8'));
+            if (cached.modelVersion !== gameCountModelVersion || cached.rule !== gameCountRule
+              || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いゲームカウントキャッシュ');
+            return cached.samples;
+          } catch {
+            const samples = await sampleGameCountFrames(clipPath, match.duration, {
+              interval: 0.5,
+              crop: gameCountFrameRegionForRule(gameCountRule),
+              onFrame: (frame, width, _height, time) => analyzeGameCountFrame(frame, width, time, { rule: gameCountRule }),
+              onProgress: ratio => updateAnalysisProgress(
+                `試合${index + 1}/${matches.length}のゲームカウントを読取中`,
+                0.68 + ((index + 0.84 + ratio * 0.12) / matches.length) * 0.3,
+              ).catch(console.error),
+            });
+            await fs.writeFile(gameCountCache, `${JSON.stringify({ modelVersion: gameCountModelVersion, rule: gameCountRule, cacheKey: gameplayKey, samples })}\n`);
+            return samples;
+          }
+        },
+        async () => {
+          try {
+            const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
+            if (cached.version !== 9 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
+            return cached.samples;
+          } catch {
+            const samples = stabilizeMapVisibility(await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+              interval: 0.5,
+              onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
+            }));
+            await fs.writeFile(mapCache, `${JSON.stringify({ version: 9, cacheKey: gameplayKey, samples })}\n`);
+            return samples;
+          }
+        },
+      ], scanConcurrency, task => task());
+      await updateAnalysisProgress(
+        `試合${index + 1}/${matches.length}の本人ブキを照合中`,
+        0.68 + ((index + 0.82) / matches.length) * 0.3,
+      );
       const hudIdentityFrame = await extractRgbFrame(recording.source, match.start + Math.min(20, Math.max(8, gameplayEnd / 3)));
-      const identitySamples = await sampleRgbWindow(recording.source, segments[index].activeEnd, identityEnd);
-      const directIdentityResult = findIdentityResult(identitySamples);
-      const identityReference = directIdentityResult || previousIdentityResult;
+      const directIdentityResult = directIdentityResults[index];
+      const identityReference = identityReferences[index];
       const identityMatch = identityReference
-        ? identifySelfHudSlot(identityReference.frame, identityReference.resultRow, hudIdentityFrame)
-        : null;
-      if (directIdentityResult) previousIdentityResult = directIdentityResult;
-      const directWeapon = directIdentityResult
-        ? identifyResultWeapon(directIdentityResult.frame, directIdentityResult.resultRow.rowY)
+        ? identifySelfHudSlot(identityReference.frame, hudIdentityFrame)
         : null;
       let weaponEvidence = null;
-      if (directWeapon) {
-        const consistent = directWeapon.status !== 'identified' && previousWeaponEvidence?.id === directWeapon.id;
+      const visionWeaponName = directIdentityResult?.personalResult?.weapon || null;
+      const acceptedWeaponName = visionWeaponName || recordingPersonalWeapon?.name || null;
+      const visionWeapon = acceptedWeaponName
+        ? weaponCatalogEntries().find(item => item.name === acceptedWeaponName)
+        : null;
+      if (visionWeapon) {
         weaponEvidence = {
-          id: directWeapon.id,
-          name: directWeapon.name,
-          status: directWeapon.status === 'identified' ? 'identified-from-result-icon' : consistent ? 'confirmed-by-recording-consistency' : 'candidate-only',
-          confidence: Number(Math.max(directWeapon.confidence, consistent ? previousWeaponEvidence.confidence * 0.72 : 0).toFixed(3)),
-          source: 'result-icon-template-match',
-          crop: directWeapon.crop,
-          candidates: directWeapon.candidates,
+          id: visionWeapon.id,
+          name: visionWeapon.name,
+          status: visionWeaponName ? 'identified-from-personal-result' : 'confirmed-by-recording-personal-results',
+          confidence: visionWeaponName ? directIdentityResult.personalResult.confidence : 0.9,
+          source: visionWeaponName ? directIdentityResult.personalResult.source : 'personal-result-recording-consensus',
           catalogVersion: weaponCatalogMetadata.version,
-        };
-        if (weaponEvidence.status !== 'candidate-only') previousWeaponEvidence = weaponEvidence;
-      } else if (previousWeaponEvidence) {
-        weaponEvidence = {
-          ...previousWeaponEvidence,
-          status: 'inferred-from-previous-result',
-          confidence: Number((previousWeaponEvidence.confidence * 0.55).toFixed(3)),
-          source: 'previous-result-icon-template-match',
+          observations: visionWeaponName ? 1 : recordingPersonalWeapon.observations,
         };
       }
       let identityConfirmed = Boolean(identityMatch && identityMatch.confidence >= 0.05);
-      const verifiedMatch = verifiedAnalysis(recording.fileName, match.number);
       const identity = {
         status: identityConfirmed ? 'confirmed' : 'unconfirmed',
-        method: directIdentityResult ? 'result-row-weapon-match' : identityReference ? 'carried-result-weapon-match' : 'result-not-found',
+        method: directIdentityResult ? 'personal-result-weapon-match' : identityReference ? 'carried-personal-result-weapon-match' : 'personal-result-not-found',
         hudSlot: identityConfirmed ? identityMatch.slot : null,
         confidence: identityMatch?.confidence || 0,
         resultTime: directIdentityResult?.time == null ? null : Number((directIdentityResult.time - match.start).toFixed(2)),
@@ -424,20 +643,11 @@ export class Pipeline {
       };
       const resultAnalysis = resultAnalyses[index];
       const outcome = outcomeAnalyses[index];
-      const respawnCache = path.join(workDir, `respawn-hud-match-${String(match.number).padStart(2, '0')}.json`);
-      let respawnSamples;
-      try {
-        const cached = JSON.parse(await fs.readFile(respawnCache, 'utf8'));
-        if (cached.modelVersion !== respawnModelVersion || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古い復活UIキャッシュ');
-        respawnSamples = cached.samples;
-      } catch {
-        respawnSamples = await sampleRespawnHud(clipPath, match.duration);
-        await fs.writeFile(respawnCache, `${JSON.stringify({ modelVersion: respawnModelVersion, cacheKey: gameplayKey, samples: respawnSamples })}\n`);
-      }
-      const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayEnd });
+      const gameplayStart = detectGameplayStart(battleHud, { gameplayEnd });
+      const respawnRuns = detectRespawnRuns(respawnSamples, { gameplayStart, gameplayEnd });
       const slotCandidates = (battleHud[0]?.team || []).map((_, slot) => {
         const selfHud = battleHud.map(sample => ({ time: sample.time, ...sample.team[slot] }));
-        const hudDeaths = detectSelfDeaths(selfHud, { duration: match.duration, gameplayEnd });
+        const hudDeaths = detectSelfDeaths(selfHud, { duration: match.duration, gameplayStart, gameplayEnd });
         return { slot, deaths: attachRespawnEvidence(hudDeaths, respawnRuns) };
       });
       const selectedCandidates = chooseDeathCandidateSet(
@@ -452,67 +662,16 @@ export class Pipeline {
         identity.hudSlot = selectedCandidates.slot;
         identity.confidence = Number(Math.min(0.9, 0.35 + selectedCandidates.respawnConfirmed * 0.1).toFixed(3));
       }
-      const deathCandidates = applyVerifiedDeathWindows(selectedCandidates?.deaths || respawnRuns, verifiedMatch);
+      const deathCandidates = selectedCandidates?.deaths || respawnRuns;
       const deaths = reconcileDeathsWithResult(deathCandidates, resultAnalysis?.deathCount);
       const deathCountMatched = Boolean(resultAnalysis && resultAnalysis.deathCount === deaths.length);
-      const perceptionCache = path.join(workDir, `perception-match-${String(match.number).padStart(2, '0')}.json`);
-      let perceptionSamples;
-      try {
-        const cached = JSON.parse(await fs.readFile(perceptionCache, 'utf8'));
-        if (cached.version !== 1 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古い映像認識キャッシュ');
-        perceptionSamples = cached.samples;
-      } catch {
-        let previousPerceptionFrame = null;
-        perceptionSamples = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
-          interval: 0.5,
-          width: 480,
-          height: 270,
-          onFrame: (frame, width, height, time) => {
-            const result = analyzeEnemyColorFrame(frame, previousPerceptionFrame, width, height, time);
-            previousPerceptionFrame = frame;
-            return result;
-          },
-        });
-        await fs.writeFile(perceptionCache, `${JSON.stringify({ version: 1, cacheKey: gameplayKey, samples: perceptionSamples })}\n`);
-      }
       const detections = [
         ...buildDeathCameraDetections(deaths),
         ...detectEnemyColorMotionRuns(perceptionSamples, deaths),
       ].sort((left, right) => left.frames[0][0] - right.frames[0][0]);
-      const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd });
-      const gameCountCache = path.join(workDir, `game-count-match-${String(match.number).padStart(2, '0')}.json`);
-      let gameCountSamples;
-      try {
-        const cached = JSON.parse(await fs.readFile(gameCountCache, 'utf8'));
-        if (cached.modelVersion !== gameCountModelVersion || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いゲームカウントキャッシュ');
-        gameCountSamples = cached.samples;
-      } catch {
-        gameCountSamples = await sampleGameCountFrames(clipPath, match.duration, {
-          interval: 0.5,
-          onFrame: (frame, width, _height, time) => analyzeGameCountFrame(frame, width, time),
-          onProgress: ratio => this.store.patch(id, {
-            status: 'analyzing',
-            phase: `試合${index + 1}/${matches.length}のゲームカウントを読取中`,
-            progress: 0.68 + ((index + 0.84 + ratio * 0.12) / matches.length) * 0.3,
-          }).catch(console.error),
-        });
-        await fs.writeFile(gameCountCache, `${JSON.stringify({ modelVersion: gameCountModelVersion, cacheKey: gameplayKey, samples: gameCountSamples })}\n`);
-      }
-      const mapCache = path.join(workDir, `map-candidates-match-${String(match.number).padStart(2, '0')}.json`);
-      let mapCandidates;
-      try {
-        const cached = JSON.parse(await fs.readFile(mapCache, 'utf8'));
-        if (cached.version !== 8 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
-        mapCandidates = cached.samples;
-      } catch {
-        mapCandidates = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
-          interval: 1,
-          onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
-        });
-        await fs.writeFile(mapCache, `${JSON.stringify({ version: 8, cacheKey: gameplayKey, samples: mapCandidates })}\n`);
-      }
       const hiddenTimes = mapCandidates.filter(sample => sample.mapUi?.visible).map(sample => sample.time);
-      const gameCounts = detectGameCounts(gameCountSamples, { gameplayEnd, hiddenTimes });
+      const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd, hiddenTimes });
+      const gameCounts = detectGameCounts(gameCountSamples, { gameplayEnd, hiddenTimes, rule: gameCountRule });
       const observedMap = selectObservedMapFrame(mapCandidates, deaths);
       const spatialObservations = detectSpatialObservations(mapCandidates);
       const playerRoute = buildPlayerRoute(spatialObservations);
@@ -521,12 +680,6 @@ export class Pipeline {
       const allyPredictions = buildEntityPredictions(allyTracks);
       const enemyThreatZones = buildEnemyThreatZones(deaths, spatialObservations);
       const enemySightPredictions = buildEnemySightPredictions(detections, playerRoute);
-      const automaticStage = stageResultsByMatch.get(`match-${String(match.number).padStart(2, '0')}`);
-      const acceptedStage = automaticStage?.confidence >= 0.65
-        ? automaticStage
-        : verifiedMatch?.stageAsset
-          ? { ...verifiedMatch, confidence: 1, source: 'verified-stage-map-asset' }
-          : null;
       let stageMap = null;
       let observedImageUrl = null;
       if (observedMap) {
@@ -564,7 +717,7 @@ export class Pipeline {
           gameplay: sample.gameplay,
         }));
       const analysis = {
-        version: 26,
+        version: 28,
         recordingId: id,
         matchId: match.id,
         generatedAt: new Date().toISOString(),
@@ -578,7 +731,14 @@ export class Pipeline {
           playerCounts,
           gameCounts,
         },
+        playerStats: resultAnalysis ? {
+          kills: resultAnalysis.killCount ?? null,
+          deaths: resultAnalysis.deathCount,
+          source: resultAnalysis.source,
+          confidence: resultAnalysis.confidence,
+        } : null,
         playerIdentity: identity,
+        weaponRoster,
         outcome,
         validation: {
           outcome: {
@@ -592,7 +752,9 @@ export class Pipeline {
             expected: resultAnalysis?.deathCount ?? null,
             observed: deaths.length,
             candidates: deathCandidates.length,
-            source: resultAnalysis?.source || 'result-screen-not-found',
+            gameplayStart,
+            gameplayStartSource: 'stable-match-timer-hud',
+            source: resultAnalysis?.source || 'personal-result-not-found',
             resultTime: resultAnalysis?.time ?? null,
             matched: resultAnalysis ? deathCountMatched : null,
           },
@@ -611,9 +773,11 @@ export class Pipeline {
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           deaths: !resultAnalysis
-            ? 'unavailable-no-result-screen'
+            ? 'unavailable-no-personal-result'
             : !deathCountMatched
-              ? 'unavailable-death-candidates-do-not-match-result'
+              ? deaths.length
+                ? 'partial-detected-deaths-below-result-count'
+                : 'unavailable-death-candidates-do-not-match-result'
             : respawnRuns.length
               ? 'result-count-validated-hud-and-respawn-timing-fusion'
               : identityConfirmed
@@ -623,8 +787,14 @@ export class Pipeline {
           deathSequenceAnalysis: deathSequenceResult.analysis ? 'codex-vision-sequence' : 'available-on-demand',
           playerWeapon: weaponEvidence && weaponEvidence.status !== 'candidate-only'
             ? weaponEvidence.status
-            : 'unavailable-low-confidence-result-icon-match',
+            : 'unavailable-personal-result-not-found',
+          weaponRoster: weaponRoster?.complete
+            ? 'opening-battle-hud-two-frame-validated'
+            : weaponRoster
+              ? 'partial-opening-battle-hud-two-frame-validated'
+              : 'unavailable-opening-battle-hud-not-confident',
           playerCounts: 'automatic-battle-hud',
+          mapDetection: 'automatic-start-point-close-button-map-structure-temporal-fusion',
           matchOutcome: outcome
             ? 'automatic-post-match-win-lose-announcement'
             : 'unavailable-post-match-announcement-not-found',
@@ -633,7 +803,9 @@ export class Pipeline {
           enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
           enemyRoutes: enemySightPredictions.length ? 'predicted-from-video-candidate-and-self-route-heading' : 'unavailable-no-overlapping-video-candidate-and-self-route',
           stageMap: automaticStage?.confidence >= 0.65
-            ? 'automatic-result-header-stage-and-rule'
+            ? automaticStage.source === 'personal-result-codex-vision'
+              ? 'automatic-personal-result-stage-and-rule'
+              : 'automatic-match-intro-stage-and-rule'
             : stageMap
               ? 'automatic-observed-map-screen'
               : 'unavailable-stage-and-map-not-found',
@@ -649,13 +821,13 @@ export class Pipeline {
         analysisUrl: `/api/analysis/${encodeURIComponent(id)}/${encodeURIComponent(analysisName)}`,
         eventCount: events.length,
       });
-      await this.store.patch(id, {
-        matches,
-        status: 'analyzing',
-        phase: `試合${index + 1}/${matches.length}を分析中`,
-        progress: 0.68 + ((index + 1) / matches.length) * 0.3,
-      });
-    }
+      completedMatches += 1;
+      await updateAnalysisProgress(
+        `試合${completedMatches}/${matches.length}を分析済み`,
+        0.68 + (completedMatches / matches.length) * 0.3,
+      );
+      return match;
+    });
 
     await this.store.patch(id, {
       matches,

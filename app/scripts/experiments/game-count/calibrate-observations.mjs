@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { sampleGameCountFrames } from '../../../src/ffmpeg.mjs';
-import { countRois, extractDigitGlyphs } from '../../../src/game-count-vision.mjs';
+import { countRois, extractDigitGlyphs, extractObjectiveDigitGlyphs, gameCountFrameRegionForRule } from '../../../src/game-count-vision.mjs';
 
 const configPath = path.resolve(process.argv[2] || 'config/game-count-calibration-observations.json');
 const outputPath = path.resolve(process.argv[3] || 'src/game-count-calibration-model.json');
@@ -20,6 +20,7 @@ function packedBits(mask) {
 }
 
 function collect(glyphs, value) {
+  if (value == null) return;
   const digits = String(value).split('').map(Number);
   if (glyphs.length !== digits.length) {
     rejected += 1;
@@ -46,14 +47,23 @@ for (const recording of config.recordings || []) {
   const matchesRoot = path.resolve(path.dirname(configPath), recording.matchesRoot);
   for (const match of recording.matches || []) {
     const wanted = new Map(match.observations.map(([time, left, right]) => [time, { left, right }]));
+    const region = gameCountFrameRegionForRule(match.rule);
     await sampleGameCountFrames(path.join(matchesRoot, `match-${String(match.number).padStart(2, '0')}.mp4`), match.duration, {
       interval: match.interval || 1,
+      crop: region,
       onFrame(frame, width, _height, time) {
         const observation = wanted.get(time);
         if (!observation) return { time };
-        for (const threshold of thresholds) {
-          collect(extractDigitGlyphs(frame, width, countRois.leftX, countRois.y, countRois.leftWidth, threshold), observation.left);
-          collect(extractDigitGlyphs(frame, width, countRois.rightX, countRois.y, countRois.rightWidth, threshold), observation.right);
+        if (match.rule === 'ヤグラ' || match.rule === 'ホコ') {
+          for (const [side, value] of [['left', observation.left], ['right', observation.right]]) {
+            if (value == null) continue;
+            for (const result of extractObjectiveDigitGlyphs(frame, width, side, value)) collect(result.glyphs, value);
+          }
+        } else {
+          for (const threshold of thresholds) {
+            collect(extractDigitGlyphs(frame, width, countRois.leftX, countRois.y, countRois.leftWidth, threshold), observation.left);
+            collect(extractDigitGlyphs(frame, width, countRois.rightX, countRois.y, countRois.rightWidth, threshold), observation.right);
+          }
         }
         return { time };
       },

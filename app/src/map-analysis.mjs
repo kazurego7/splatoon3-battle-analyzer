@@ -183,6 +183,152 @@ export function analyzeMapCloseButton(frame, width, height) {
   };
 }
 
+function isMapStartPointButtonVisible(evidence) {
+  return evidence.whiteRatio >= 0.2 && evidence.whiteRatio <= 0.45
+    && evidence.edgeRatio >= 0.07
+    && evidence.glyphComponents >= 5
+    && evidence.arrowComponents >= 2;
+}
+
+export function analyzeMapStartPointButton(frame, width, height) {
+  const scaleX = width / 960;
+  const scaleY = height / 540;
+  const left = Math.round(462 * scaleX);
+  const right = Math.round(522 * scaleX);
+  const top = Math.round(483 * scaleY);
+  const bottom = Math.round(504 * scaleY);
+  const regionWidth = Math.max(1, right - left);
+  const regionHeight = Math.max(1, bottom - top);
+  const whiteMask = new Uint8Array(regionWidth * regionHeight);
+  let dark = 0;
+  let white = 0;
+  let edges = 0;
+  let pixels = 0;
+  for (let y = 0; y < regionHeight; y += 1) {
+    for (let x = 0; x < regionWidth; x += 1) {
+      const [r, g, b] = rgbAt(frame, width, left + x, top + y);
+      const maximum = Math.max(r, g, b);
+      const minimum = Math.min(r, g, b);
+      if (maximum < 70) dark += 1;
+      if (minimum > 135 && maximum - minimum < 75) {
+        white += 1;
+        whiteMask[y * regionWidth + x] = 1;
+      }
+      if (x > 0) {
+        const [previousR, previousG, previousB] = rgbAt(frame, width, left + x - 1, top + y);
+        if (Math.abs(r - previousR) + Math.abs(g - previousG) + Math.abs(b - previousB) > 150) edges += 1;
+      }
+      pixels += 1;
+    }
+  }
+  const visited = new Uint8Array(whiteMask.length);
+  const components = [];
+  for (let index = 0; index < whiteMask.length; index += 1) {
+    if (!whiteMask[index] || visited[index]) continue;
+    const queue = [index];
+    visited[index] = 1;
+    let minimumX = regionWidth;
+    let maximumX = 0;
+    let minimumY = regionHeight;
+    let maximumY = 0;
+    for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+      const current = queue[queueIndex];
+      const x = current % regionWidth;
+      const y = Math.floor(current / regionWidth);
+      minimumX = Math.min(minimumX, x);
+      maximumX = Math.max(maximumX, x);
+      minimumY = Math.min(minimumY, y);
+      maximumY = Math.max(maximumY, y);
+      for (const [offsetX, offsetY] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nextX = x + offsetX;
+        const nextY = y + offsetY;
+        if (nextX < 0 || nextX >= regionWidth || nextY < 0 || nextY >= regionHeight) continue;
+        const next = nextY * regionWidth + nextX;
+        if (whiteMask[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+    components.push({
+      area: queue.length,
+      width: maximumX - minimumX + 1,
+      height: maximumY - minimumY + 1,
+    });
+  }
+  const scaleArea = scaleX * scaleY;
+  const glyphComponents = components.filter(component => component.area >= 18 * scaleArea
+    && component.width >= 4 * scaleX && component.width <= 18 * scaleX
+    && component.height >= 5 * scaleY && component.height <= 18 * scaleY);
+  const arrowLeft = Math.round(438 * scaleX);
+  const arrowRight = Math.round(490 * scaleX);
+  const arrowTop = Math.round(478 * scaleY);
+  const arrowBottom = Math.round(530 * scaleY);
+  const arrowWidth = Math.max(1, arrowRight - arrowLeft);
+  const arrowHeight = Math.max(1, arrowBottom - arrowTop);
+  const arrowMask = new Uint8Array(arrowWidth * arrowHeight);
+  for (let y = 0; y < arrowHeight; y += 1) {
+    for (let x = 0; x < arrowWidth; x += 1) {
+      const [r, g, b] = rgbAt(frame, width, arrowLeft + x, arrowTop + y);
+      const maximum = Math.max(r, g, b);
+      const minimum = Math.min(r, g, b);
+      if (minimum > 135 && maximum - minimum < 75) arrowMask[y * arrowWidth + x] = 1;
+    }
+  }
+  const arrowVisited = new Uint8Array(arrowMask.length);
+  const arrowComponents = [];
+  for (let index = 0; index < arrowMask.length; index += 1) {
+    if (!arrowMask[index] || arrowVisited[index]) continue;
+    const queue = [index];
+    arrowVisited[index] = 1;
+    let minimumX = arrowWidth;
+    let maximumX = 0;
+    let minimumY = arrowHeight;
+    let maximumY = 0;
+    for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+      const current = queue[queueIndex];
+      const x = current % arrowWidth;
+      const y = Math.floor(current / arrowWidth);
+      minimumX = Math.min(minimumX, x);
+      maximumX = Math.max(maximumX, x);
+      minimumY = Math.min(minimumY, y);
+      maximumY = Math.max(maximumY, y);
+      for (const [offsetX, offsetY] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nextX = x + offsetX;
+        const nextY = y + offsetY;
+        if (nextX < 0 || nextX >= arrowWidth || nextY < 0 || nextY >= arrowHeight) continue;
+        const next = nextY * arrowWidth + nextX;
+        if (arrowMask[next] && !arrowVisited[next]) {
+          arrowVisited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+    arrowComponents.push({
+      area: queue.length,
+      x: arrowLeft + minimumX,
+      y: arrowTop + minimumY,
+      width: maximumX - minimumX + 1,
+      height: maximumY - minimumY + 1,
+    });
+  }
+  const arrowHalves = arrowComponents.filter(component => component.area >= 120 * scaleArea && component.area <= 220 * scaleArea
+    && component.x >= 450 * scaleX && component.x <= 458 * scaleX
+    && component.width >= 20 * scaleX && component.width <= 29 * scaleX
+    && component.height >= 9 * scaleY && component.height <= 16 * scaleY);
+  const darkRatio = dark / Math.max(1, pixels);
+  const whiteRatio = white / Math.max(1, pixels);
+  const edgeRatio = edges / Math.max(1, pixels);
+  const evidence = {
+    darkRatio: Number(darkRatio.toFixed(4)),
+    whiteRatio: Number(whiteRatio.toFixed(4)),
+    edgeRatio: Number(edgeRatio.toFixed(4)),
+    glyphComponents: glyphComponents.length,
+    arrowComponents: arrowHalves.length,
+  };
+  return { visible: isMapStartPointButtonVisible(evidence), ...evidence };
+}
+
 function analyzeSelectedPlayerPanel(frame, width, height) {
   const scaleX = width / 960;
   const scaleY = height / 540;
@@ -502,6 +648,7 @@ export function detectMapCursor(frame, width, height) {
 
 function analyzeMapUiPanel(frame, width, height) {
   const closeButton = analyzeMapCloseButton(frame, width, height);
+  const startPointButton = analyzeMapStartPointButton(frame, width, height);
   const selectedPlayerPanel = analyzeSelectedPlayerPanel(frame, width, height);
   const left = Math.round(width * (750 / 960));
   const right = Math.round(width * (940 / 960));
@@ -552,8 +699,10 @@ function analyzeMapUiPanel(frame, width, height) {
     leftPanel: { darkRatio: Number(leftPanel.darkRatio.toFixed(4)), edgeRatio: Number(leftPanel.edgeRatio.toFixed(4)) },
     rightPanel: { darkRatio: Number(rightPanel.darkRatio.toFixed(4)), edgeRatio: Number(rightPanel.edgeRatio.toFixed(4)) },
     closeButton,
+    startPointButton,
     selectedPlayerPanel,
-    visible: closeButton.visible && darkRatio >= 0.25 && edgeRatio >= 0.115 && sidePanelsVisible,
+    panelEvidenceVisible: closeButton.visible && darkRatio >= 0.25 && edgeRatio >= 0.115 && sidePanelsVisible,
+    visible: false,
   };
 }
 
@@ -590,6 +739,15 @@ export function analyzeMapCandidate(frame, width, height, time) {
     score: Number((neutralRatio * 0.82 + edgeRatio * 0.18).toFixed(4)),
     mapUi,
   };
+  const mapStructureVisible = candidate.neutralRatio >= 0.36 && candidate.score >= 0.32;
+  mapUi.visible = mapUi.startPointButton.visible || (mapStructureVisible && mapUi.closeButton.visible);
+  mapUi.visibleSource = !mapUi.visible
+    ? null
+    : mapUi.startPointButton.visible
+      ? 'start-point-button-fixed-ui'
+      : mapUi.panelEvidenceVisible
+        ? 'close-button-panels-and-map-structure'
+        : 'close-button-and-map-structure';
   if (mapUi.visible && candidate.neutralRatio >= 0.36 && candidate.score >= 0.32) {
     candidate.teamColor = estimateMapTeamColor(frame, width, height);
     candidate.cursor = detectMapCursor(frame, width, height);
@@ -609,6 +767,56 @@ export function analyzeMapCandidate(frame, width, height, time) {
     }
   }
   return candidate;
+}
+
+export function stabilizeMapVisibility(samples, { maximumNeighborDistance = 1.1 } = {}) {
+  const normalized = samples.map(sample => {
+    const previousWasTemporal = sample.mapUi?.visibleSource?.startsWith('temporal-');
+    const base = !previousWasTemporal ? sample : {
+      ...sample,
+      mapUi: { ...sample.mapUi, visible: false, visibleSource: null },
+    };
+    const startPointVisible = base.mapUi?.startPointButton
+      && isMapStartPointButtonVisible(base.mapUi.startPointButton);
+    if (!startPointVisible || base.mapUi.visible) return base;
+    return {
+      ...base,
+      mapUi: {
+        ...base.mapUi,
+        startPointButton: { ...base.mapUi.startPointButton, visible: true },
+        visible: true,
+        visibleSource: 'start-point-button-fixed-ui',
+      },
+    };
+  });
+  const directVisibility = normalized.map(sample => Boolean(sample.mapUi?.visible)
+    && !sample.mapUi.visibleSource?.startsWith('temporal-'));
+  return normalized.map((sample, index) => {
+    if (directVisibility[index] || !sample.mapUi) return sample;
+    const structureVisible = sample.neutralRatio >= 0.36 && sample.score >= 0.32;
+    let previous = index - 1;
+    while (previous >= 0 && sample.time - normalized[previous].time <= maximumNeighborDistance && !directVisibility[previous]) previous -= 1;
+    let next = index + 1;
+    while (next < normalized.length && normalized[next].time - sample.time <= maximumNeighborDistance && !directVisibility[next]) next += 1;
+    const bracketed = previous >= 0 && next < normalized.length
+      && directVisibility[previous] && directVisibility[next]
+      && sample.time - normalized[previous].time <= maximumNeighborDistance
+      && normalized[next].time - sample.time <= maximumNeighborDistance;
+    const adjacentToDirect = (index > 0 && directVisibility[index - 1] && sample.time - normalized[index - 1].time <= 0.6)
+      || (index + 1 < normalized.length && directVisibility[index + 1] && normalized[index + 1].time - sample.time <= 0.6);
+    const transitionStructure = sample.neutralRatio >= 0.3 && sample.score >= 0.27;
+    if (!(bracketed && structureVisible) && !(adjacentToDirect && transitionStructure)) return sample;
+    return {
+      ...sample,
+      mapUi: {
+        ...sample.mapUi,
+        visible: true,
+        visibleSource: bracketed && structureVisible
+          ? 'temporal-continuity-between-map-frames'
+          : 'temporal-adjacent-map-transition',
+      },
+    };
+  });
 }
 
 export function selectObservedMapFrame(samples, deaths = []) {

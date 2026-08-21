@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import { nearestClipIndex, nextClipIndex, patternClipRanges, patternReportModels } from '../public/report-player.js';
 
 const events = [
@@ -35,4 +36,9 @@ test('creates one independent player model for every pattern', () => {
   assert.equal(models.length, 2);
   assert.deepEqual(models.map(model => model.reportIndex), [1, 2]);
   assert.notEqual(models[0].resolvedClips, models[1].resolvedClips);
+});
+
+test('report page overrides the fixed-height app shell and remains scrollable', async () => {
+  const css = await fs.readFile(new URL('../public/report.css', import.meta.url), 'utf8');
+  assert.match(css, /body\.report-body\s*\{[^}]*height:auto;[^}]*overflow-y:auto;/);
 });

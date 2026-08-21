@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["matches"],
+  "properties": {
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "team", "enemy", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "team": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": { "$ref": "#/definitions/slot" }
+          },
+          "enemy": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": { "$ref": "#/definitions/slot" }
+          },
+          "evidence": { "type": "string" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firstType", "secondType", "type", "firstReferenceId", "secondReferenceId", "referenceId", "confidence"],
+      "properties": {
+        "firstType": { "$ref": "#/definitions/weaponType" },
+        "secondType": { "$ref": "#/definitions/weaponType" },
+        "type": { "$ref": "#/definitions/weaponType" },
+        "firstReferenceId": { "type": "integer", "minimum": 1, "maximum": 173 },
+        "secondReferenceId": { "type": "integer", "minimum": 1, "maximum": 173 },
+        "referenceId": { "type": "integer", "minimum": 1, "maximum": 173 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "weaponType": {
+      "type": "string",
+      "enum": ["シューター", "ローラー", "チャージャー", "ブラスター", "スロッシャー", "スピナー", "フデ", "マニューバー", "シェルター", "ストリンガー", "ワイパー"]
+    }
+  }
+}

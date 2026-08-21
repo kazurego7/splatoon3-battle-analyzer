@@ -1,5 +1,6 @@
 import { resolveOutcomeLabel } from './outcome.js';
-import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime } from './death-analysis-ui.js';
+import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime, matchAnalysisBadge } from './death-analysis-ui.js';
+import { killDeathFromAnalysis } from './player-stats-ui.js';
 
 const byId = id => document.getElementById(id);
 const elements = {
@@ -8,15 +9,15 @@ const elements = {
   video:byId('match-video'), matchTitle:byId('match-title'), eventList:byId('event-list'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
   timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), playerCountStatus:byId('player-count-status'), gameCountStatus:byId('game-count-status'),
   chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHover:byId('chart-hover'), chartHit:byId('chart-hit'),
-  capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'), briefingRouteLayer:byId('briefing-route-layer'),
+  capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapClock:byId('map-clock'), routeLayer:byId('route-layer'), entityLayer:byId('entity-layer'), playerLayer:byId('player-layer'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'),
   strongEditButton:byId('strong-edit-button'), strongEditPanel:byId('strong-edit-panel'), strongEditInstruction:byId('strong-edit-instruction'), strongTitleInput:byId('strong-title-input'), strongTipsInput:byId('strong-tips-input'), strongPositionList:byId('strong-position-list'), strongPositionCount:byId('strong-position-count'), strongFormTitle:byId('strong-form-title'), strongFormContext:byId('strong-form-context'), strongNewButton:byId('strong-new-button'), strongPositionButton:byId('strong-position-button'), strongTargetButton:byId('strong-target-button'), strongAddButton:byId('strong-add-button'),
-  briefingToggleButton:byId('briefing-toggle-button'), briefingPanel:byId('briefing-panel'), briefingList:byId('briefing-list'), briefingCount:byId('briefing-count'), briefingFormTitle:byId('briefing-form-title'), briefingFormContext:byId('briefing-form-context'), briefingNewButton:byId('briefing-new-button'), briefingDeleteButton:byId('briefing-delete-button'), briefingTitleInput:byId('briefing-title-input'), briefingSituationInput:byId('briefing-situation-input'), briefingMovementInput:byId('briefing-movement-input'), briefingRouteButton:byId('briefing-route-button'), briefingUndoButton:byId('briefing-undo-button'), briefingSaveButton:byId('briefing-save-button'), positionSaveStatus:byId('position-save-status'),
-  mapEditorModal:byId('map-editor-modal'), mapEditorModalTitle:byId('map-editor-modal-title'), mapEditorModalContext:byId('map-editor-modal-context'), mapEditorModalClose:byId('map-editor-modal-close'), editorStageMapImage:byId('editor-stage-map-image'), editorMapOverlay:byId('editor-map-overlay'), editorStrongPositionLayer:byId('editor-strong-position-layer'), editorBriefingRouteLayer:byId('editor-briefing-route-layer'), modalSaveStatus:byId('modal-save-status'),
-  videoHeadingMeta:byId('video-heading-meta'), reviewBackButton:byId('review-back-button'),
+  positionSaveStatus:byId('position-save-status'),
+  mapEditorModal:byId('map-editor-modal'), mapEditorModalTitle:byId('map-editor-modal-title'), mapEditorModalContext:byId('map-editor-modal-context'), mapEditorModalClose:byId('map-editor-modal-close'), editorStageMapImage:byId('editor-stage-map-image'), editorMapOverlay:byId('editor-map-overlay'), editorStrongPositionLayer:byId('editor-strong-position-layer'), modalSaveStatus:byId('modal-save-status'),
+  videoHeadingMeta:byId('video-heading-meta'), screenTitle:byId('screen-title'),
 };
 
 const labels = { queued:'待機中', probing:'確認中', splitting:'分割中', analyzing:'分析中', ready:'分析済み', error:'失敗' };
-const chartBounds = { left:34, right:978, countTop:31, countBottom:176, labelY:210 };
+const chartBounds = { left:34, right:978, countTop:31, countBottom:176, labelY:203, hoverTop:218 };
 let recordings = [];
 let selectedId = null;
 let currentAnalysis = null;
@@ -25,8 +26,6 @@ let currentPositionPlan = { strongPositions:[], briefings:[] };
 let mapEditMode = null;
 let draftStrongSpot = null;
 let draftStrongIndex = null;
-let activeBriefingId = null;
-let draftBriefing = null;
 let selectedDeathKey = null;
 let currentRecording = null;
 let currentMatch = null;
@@ -38,8 +37,8 @@ function formatTime(value) { const seconds=Math.max(0,Math.round(Number(value)||
 function formatSize(value) { return value>=1e9?`${(value/1e9).toFixed(1)} GB`:`${(value/1e6).toFixed(0)} MB`; }
 function clonePositionPlan(plan) { return JSON.parse(JSON.stringify(plan||{strongPositions:[],briefings:[]})); }
 function svgElement(name,attributes={}) { const element=document.createElementNS('http://www.w3.org/2000/svg',name); Object.entries(attributes).forEach(([key,value])=>element.setAttribute(key,value)); return element; }
-function setReviewMode(active) { document.body.classList.toggle('is-review',active); }
-function backToAnalysisList() { currentAnalysis=null;currentRecording=null;currentMatch=null;elements.video.pause();elements.video.removeAttribute('src');elements.reviewView.hidden=true;setReviewMode(false);renderSelected(); }
+function setReviewMode(active) { document.body.classList.toggle('is-review',active); elements.screenTitle.textContent=active?'試合レビュー':'録画ライブラリ'; }
+function showAnalysisList() { currentAnalysis=null;currentRecording=null;currentMatch=null;elements.video.pause();elements.video.removeAttribute('src');elements.reviewView.hidden=true;setReviewMode(false);renderSelected(); }
 
 function recordingCard(recording) {
   const button=document.createElement('button'); button.type='button'; button.className=`recording-card${recording.id===selectedId?' is-selected':''}`;
@@ -62,16 +61,15 @@ function matchCard(recording,match) {
   const ready=match.status==='ready',card=document.createElement('article');card.className=`match-card${ready?' is-clickable':''}`;card.tabIndex=ready?0:-1;card.setAttribute('role','button');card.setAttribute('aria-disabled',String(!ready));card.setAttribute('aria-label',`試合 ${String(match.number).padStart(2,'0')} の振り返りを開く`);
   const media=document.createElement('div');media.className='match-card-media';const image=document.createElement('img');image.alt=`試合${match.number}のサムネイル`;if(match.thumbnailUrl)image.src=match.thumbnailUrl;const preview=document.createElement('video');preview.className='match-card-preview';preview.muted=true;preview.loop=true;preview.playsInline=true;preview.preload='none';media.append(image,preview);
   const body=document.createElement('div'); body.className='match-card-body'; const top=document.createElement('div'); top.className='match-card-top'; const title=document.createElement('h3'); title.textContent=`試合 ${String(match.number).padStart(2,'0')}`;
-  const badge=document.createElement('span'); badge.className=`status-badge ${ready?'ready':''}`; badge.textContent=ready?'分析済み':'処理中'; top.append(title,badge);
-  const detail=document.createElement('p');detail.className='match-card-duration';detail.textContent=`${formatTime(match.duration)}・解析済み`;
+  const badge=document.createElement('span'); const setBadge=analysis=>{const state=matchAnalysisBadge({ready,analysis});badge.className=`status-badge ${state.className}`.trim();badge.textContent=state.label;};setBadge();top.append(title,badge);
   const facts=document.createElement('div');facts.className='match-card-facts';facts.setAttribute('aria-live','polite');
-  const setFacts=analysis=>{const outcome=resolveOutcomeLabel(analysis),stage=analysis.stageMap?.stage||'ステージ未判定',rule=analysis.stageMap?.rule||'ルール未判定',weapon=analysis.playerIdentity?.weapon,weaponName=weapon?.status!=='candidate-only'&&weapon?.name?weapon.name:'ブキ未判定';facts.innerHTML='';[[outcome,'result'],[`${stage} / ${rule}`,'stage'],[weaponName,'weapon']].forEach(([text,className])=>{const item=document.createElement('span');item.className=`match-fact ${className}${text==='WIN'?' win':text==='LOSE'?' lose':''}`;item.textContent=text;facts.append(item);});};
+  const setFacts=analysis=>{setBadge(analysis);const outcome=resolveOutcomeLabel(analysis),stage=analysis.stageMap?.stage||'ステージ未判定',rule=analysis.stageMap?.rule||'ルール未判定',weapon=analysis.playerIdentity?.weapon,weaponName=weapon?.status!=='candidate-only'&&weapon?.name?weapon.name:'ブキ未判定';facts.innerHTML='';const summaryRow=document.createElement('div');summaryRow.className='match-fact-row';[[outcome,'result'],[`${stage} / ${rule}`,'stage'],[killDeathFromAnalysis(analysis),'stats']].forEach(([text,className])=>{const item=document.createElement('span');item.className=`match-fact ${className}${text==='WIN'?' win':text==='LOSE'?' lose':''}`;item.textContent=text;summaryRow.append(item);});const weaponRow=document.createElement('div');weaponRow.className='match-fact-row weapon-row';const weaponItem=document.createElement('span');weaponItem.className='match-fact weapon';weaponItem.textContent=weaponName;weaponRow.append(weaponItem);facts.append(summaryRow,weaponRow);};
   const loadFacts=async()=>{if(!ready||!match.analysisUrl)return;try{let analysis=matchMetadataCache.get(match.analysisUrl);if(!analysis){analysis=await(await fetch(match.analysisUrl,{cache:'no-store'})).json();matchMetadataCache.set(match.analysisUrl,analysis);}setFacts(analysis);}catch(error){console.error(error);}};
   const stopPreview=()=>{preview.pause();preview.removeAttribute('src');preview.load();card.classList.remove('is-previewing');};
   const startPreview=()=>{if(!ready||!match.videoUrl||preview.src)return;preview.src=match.videoUrl;preview.addEventListener('loadedmetadata',()=>{preview.currentTime=Math.min(8,Math.max(0,preview.duration-1));},{once:true});preview.play().then(()=>card.classList.add('is-previewing')).catch(()=>stopPreview());};
   const openReview=()=>{if(!ready)return;stopPreview();openMatch(recording,match);};
   card.addEventListener('pointerenter',startPreview);card.addEventListener('pointerleave',stopPreview);card.addEventListener('focus',startPreview);card.addEventListener('blur',stopPreview);card.addEventListener('click',openReview);card.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openReview();}});
-  body.append(top,facts,detail);card.append(media,body);loadFacts();return card;
+  body.append(top,facts);card.append(media,body);loadFacts();return card;
 }
 
 function renderSelected() {
@@ -136,17 +134,6 @@ function renderStrongPositions() {
   const editorSpots=elements.strongEditPanel.hidden?[]:(currentPositionPlan.strongPositions||[]).filter((_,index)=>index!==draftStrongIndex);if(!elements.strongEditPanel.hidden&&draftStrongSpot?.position)editorSpots.push({...draftStrongSpot,id:'draft'});drawStrongPositions(elements.editorStrongPositionLayer,editorSpots);
 }
 
-function activeBriefing() { return draftBriefing||currentPositionPlan.briefings.find(item=>item.id===activeBriefingId)||null; }
-
-function renderBriefingRoute() {
-  elements.briefingRouteLayer.innerHTML='';elements.editorBriefingRouteLayer.innerHTML='';
-  if(elements.briefingPanel.hidden)return;
-  const route=activeBriefing()?.route||[];
-  elements.briefingUndoButton.disabled=!route.length;
-  if(route.length>1)elements.editorBriefingRouteLayer.append(svgElement('polyline',{points:route.map(point=>`${point.x},${point.y}`).join(' '),class:'briefing-route-line'}));
-  route.forEach((point,index)=>{const group=svgElement('g',{class:'briefing-route-marker'});group.append(svgElement('circle',{cx:point.x,cy:point.y,r:25}));const label=svgElement('text',{x:point.x,y:point.y+9,'text-anchor':'middle'});label.textContent=String(index+1);group.append(label);elements.editorBriefingRouteLayer.append(group);});
-}
-
 function renderStrongPositionList() {
   elements.strongPositionCount.textContent=`${currentPositionPlan.strongPositions.length}件`;
   elements.strongPositionList.replaceChildren(...currentPositionPlan.strongPositions.map((spot,index)=>{const row=document.createElement('div');row.classList.toggle('active',index===draftStrongIndex);const text=document.createElement('button');text.type='button';text.className='map-editor-list-select';text.textContent=spot.title||`有利なポジション ${index+1}`;text.addEventListener('click',()=>selectStrongPosition(index));const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.addEventListener('click',async()=>{const previous=clonePositionPlan(currentPositionPlan);remove.disabled=true;currentPositionPlan.strongPositions.splice(index,1);if(draftStrongIndex===index)clearStrongEditor();else if(draftStrongIndex>index)draftStrongIndex-=1;renderStrongPositionList();renderStrongPositions();if(!await savePositionPlan()){currentPositionPlan=previous;clearStrongEditor();renderStrongPositionList();renderStrongPositions();}});row.append(text,remove);return row;}));
@@ -181,39 +168,13 @@ function createStrongPosition() {
   draftStrongSpot={title:'',tips:'',position:null,target:null};draftStrongIndex=null;elements.strongTitleInput.value='';elements.strongTipsInput.value='';setStrongMapMode('strong-position','ステップ1｜マップ上の有利なポジションをクリック');updateStrongEditorControls();renderStrongPositionList();renderStrongPositions();elements.strongTitleInput.focus();
 }
 
-function renderBriefingList() {
-  elements.briefingCount.textContent=`${currentPositionPlan.briefings.length}件`;
-  elements.briefingList.replaceChildren(...currentPositionPlan.briefings.map((item,index)=>{const button=document.createElement('button');button.type='button';button.className=`briefing-list-item${item.id===activeBriefingId&&!draftBriefing?' active':''}`;button.setAttribute('role','listitem');const title=document.createElement('strong');title.textContent=item.title||`ブリーフィング ${index+1}`;const summary=document.createElement('span');summary.textContent=item.situation||'場面未入力';button.append(title,summary);button.addEventListener('click',()=>{draftBriefing=null;activeBriefingId=item.id;mapEditMode=null;elements.editorMapOverlay.classList.remove('position-editing');syncBriefingForm();});return button;}));
-}
-
-function syncBriefingForm() {
-  renderBriefingList();
-  const briefing=activeBriefing();
-  if(briefing){elements.briefingTitleInput.value=briefing.title;elements.briefingSituationInput.value=briefing.situation;elements.briefingMovementInput.value=briefing.movement;}
-  else{elements.briefingTitleInput.value='';elements.briefingSituationInput.value='';elements.briefingMovementInput.value='';}
-  const creating=Boolean(draftBriefing);
-  mapEditMode=creating?'briefing-route':null;
-  elements.editorMapOverlay.classList.toggle('position-editing',creating);
-  elements.briefingRouteButton.classList.toggle('active',creating);
-  elements.briefingRouteButton.textContent=creating?'経路指定を終了':'経路を指定';
-  elements.briefingFormTitle.textContent=creating?'ブリーフィングを追加':briefing?'ブリーフィングを編集':'ブリーフィングを追加';
-  elements.briefingFormContext.textContent=creating?'新しいブリーフィングを作成中':briefing?'選択中のプランを更新':'上の「新規作成」から開始';
-  [elements.briefingTitleInput,elements.briefingSituationInput,elements.briefingMovementInput].forEach(input=>input.disabled=!briefing);
-  elements.briefingNewButton.disabled=creating;elements.briefingDeleteButton.disabled=!briefing||creating;elements.briefingRouteButton.disabled=!briefing;elements.briefingSaveButton.disabled=!briefing;elements.briefingSaveButton.textContent=creating?'作成':'修正';renderBriefingRoute();
-}
-
-function createBriefing() {
-  draftBriefing={id:`briefing-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,title:'',situation:'',movement:'',route:[]};
-  activeBriefingId=null;mapEditMode=null;elements.editorMapOverlay.classList.remove('position-editing');syncBriefingForm();elements.briefingTitleInput.focus();
-}
-
 async function loadPositionPlan() {
   const stage=currentAnalysis?.stageMap?.stage,rule=currentAnalysis?.stageMap?.rule,available=Boolean(stage&&rule);
-  elements.strongEditButton.disabled=!available;elements.briefingToggleButton.disabled=!available;
-  if(!available){savedPositionPlan={strongPositions:[],briefings:[]};currentPositionPlan=clonePositionPlan(savedPositionPlan);renderStrongPositions();renderBriefingRoute();return;}
+  elements.strongEditButton.disabled=!available;
+  if(!available){savedPositionPlan={strongPositions:[],briefings:[]};currentPositionPlan=clonePositionPlan(savedPositionPlan);renderStrongPositions();return;}
   try{const response=await fetch(`/api/position-plan?stage=${encodeURIComponent(stage)}&rule=${encodeURIComponent(rule)}`,{cache:'no-store'});if(!response.ok)throw new Error('マップメモを読み込めませんでした');const data=await response.json();savedPositionPlan=data.plan||{strongPositions:[],briefings:[]};currentPositionPlan=clonePositionPlan(savedPositionPlan);}
   catch(error){console.error(error);savedPositionPlan={strongPositions:[],briefings:[]};currentPositionPlan=clonePositionPlan(savedPositionPlan);}
-  activeBriefingId=currentPositionPlan.briefings[0]?.id||null;renderStrongPositions();renderBriefingRoute();
+  renderStrongPositions();
 }
 
 async function savePositionPlan() {
@@ -229,7 +190,7 @@ function openMapEditor(title) {
 
 function closeMapEditors({restore=false}={}) {
   if(restore)currentPositionPlan=clonePositionPlan(savedPositionPlan);
-  elements.strongEditPanel.hidden=true;elements.briefingPanel.hidden=true;mapEditMode=null;draftStrongSpot=null;draftStrongIndex=null;draftBriefing=null;elements.strongTitleInput.value='';elements.strongTipsInput.value='';elements.briefingRouteButton.textContent='経路を指定';elements.editorMapOverlay.classList.remove('position-editing','strong-editing','picking-position','picking-target');if(elements.mapEditorModal.open)elements.mapEditorModal.close();updateStrongEditorControls();renderStrongPositions();renderBriefingRoute();
+  elements.strongEditPanel.hidden=true;mapEditMode=null;draftStrongSpot=null;draftStrongIndex=null;elements.strongTitleInput.value='';elements.strongTipsInput.value='';elements.editorMapOverlay.classList.remove('position-editing','strong-editing','picking-position','picking-target');if(elements.mapEditorModal.open)elements.mapEditorModal.close();updateStrongEditorControls();renderStrongPositions();
 }
 
 function renderSpatialState(time) {
@@ -255,32 +216,50 @@ function renderEvents(preferredKey=null) {
   elements.eventList.replaceChildren(...deaths.map((event,index)=>{const key=keys[index],button=document.createElement('button');button.type='button';button.className='event-item death';button.dataset.deathKey=key;button.title=`${formatTime(event.time)} ${deathTitle(event)}`;button.setAttribute('aria-pressed',String(key===selectedDeathKey));button.classList.toggle('active',key===selectedDeathKey);const time=document.createElement('span');time.className='event-time';time.textContent=formatTime(event.time);const title=document.createElement('strong');title.textContent=deathTitle(event);button.append(time,title);button.addEventListener('click',()=>selectDeathEvent(event,key));return button;}));
 }
 function renderDeathAnalysisSummary() {
-  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[],analysisUrl=currentMatch?.analysisUrl||'',state=deathAnalysisControlState({analysis,deathCount:deaths.length,pending:deathAnalysisJobs.has(analysisUrl),error:deathAnalysisErrors.get(analysisUrl)});elements.deathAiButton.hidden=!state.showAnalyze;elements.deathAiButton.disabled=state.analyzeDisabled;elements.deathAiButton.textContent=state.analyzeLabel;elements.deathReportButton.hidden=!state.showReport;elements.deathReportButton.disabled=!state.showReport;elements.deathReportButton.title=state.showReport?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=!state.status;elements.deathAiStatus.classList.toggle('error',state.statusIsError);elements.deathAiStatus.textContent=state.status;
+  const analysis=currentAnalysis?.deathAnalysis,deaths=currentAnalysis?.events?.filter(event=>event.type==='death')||[],analysisUrl=currentMatch?.analysisUrl||'',state=deathAnalysisControlState({analysis,deathCount:deaths.length,jobState:currentAnalysis?.deathAnalysisState,localError:deathAnalysisErrors.get(analysisUrl)});elements.deathAiButton.hidden=!state.showAnalyze;elements.deathAiButton.disabled=state.analyzeDisabled;elements.deathAiButton.textContent=state.analyzeLabel;elements.deathReportButton.hidden=!state.showReport;elements.deathReportButton.disabled=!state.showReport;elements.deathReportButton.title=state.showReport?'失敗パターンを別ウィンドウで開く':'';elements.deathAiStatus.hidden=!state.status;elements.deathAiStatus.classList.toggle('error',state.statusIsError);elements.deathAiStatus.textContent=state.status;
   elements.deathAiButton.closest('.death-report-digest').classList.toggle('awaiting-analysis',state.showAnalyze);
   elements.deathReportDigest.textContent=deathReportDigest(currentAnalysis);
   if(!analysis&&!deaths.length)elements.deathReportDigest.textContent='分析できるデスがありません。';
 }
 function openDeathReport() { if(!currentMatch||!currentAnalysis?.deathAnalysis)return;const query=new URLSearchParams({analysis:currentMatch.analysisUrl,video:currentMatch.videoUrl,title:`${currentRecording.fileName} / 試合 ${String(currentMatch.number).padStart(2,'0')}`});const report=window.open(`/report.html?${query}`,'_blank');if(report)report.opener=null;else{elements.deathAiStatus.hidden=false;elements.deathAiStatus.classList.add('error');elements.deathAiStatus.textContent='ポップアップがブロックされました。ブラウザで許可してください。';} }
-async function runDeathAiAnalysis() {
-  if(!currentMatch||elements.deathAiButton.disabled)return;const analysisUrl=currentMatch.analysisUrl,previousKey=selectedDeathKey;if(deathAnalysisJobs.has(analysisUrl))return;deathAnalysisErrors.delete(analysisUrl);
-  const job=(async()=>{try{const response=await fetch(deathAnalysisEndpoint(analysisUrl),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh:false})});const value=await response.json();if(!response.ok)throw new Error(value.error||`HTTP ${response.status}`);matchMetadataCache.set(analysisUrl,value);deathAnalysisErrors.delete(analysisUrl);if(currentMatch?.analysisUrl===analysisUrl){currentAnalysis=value;renderEvents(previousKey);renderChart();}}
-    catch(error){deathAnalysisErrors.set(analysisUrl,error.message);}
-    finally{deathAnalysisJobs.delete(analysisUrl);if(currentMatch?.analysisUrl===analysisUrl)renderDeathAnalysisSummary();}})();
-  deathAnalysisJobs.set(analysisUrl,job);renderDeathAnalysisSummary();await job;
+function applyDeathAnalysisPayload(analysisUrl,payload,preferredKey=selectedDeathKey) {
+  if(!payload?.analysis)return;const analysis=payload.analysis;if(payload.state)analysis.deathAnalysisState=payload.state;matchMetadataCache.set(analysisUrl,analysis);
+  if(payload.state?.status!=='error'&&payload.state?.status!=='interrupted')deathAnalysisErrors.delete(analysisUrl);
+  if(currentMatch?.analysisUrl!==analysisUrl)return;currentAnalysis=analysis;renderEvents(selectedDeathKey||preferredKey);renderDeathAnalysisSummary();
 }
-function renderCapabilities() { const names={segmentation:'試合分割',matchOutcome:'勝敗発表',deaths:'本人デス判定',deathExplanation:'デスの状況・原因',playerWeapon:'自分のブキ',playerCounts:'生存人数',playerRoute:'プレイヤー動線',mapAllies:'味方位置・予測',enemyThreats:'敵の脅威範囲予測',enemyRoutes:'敵候補の予測動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).filter(([key])=>key in names).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key];const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }
+function monitorDeathAiAnalysis(analysisUrl,preferredKey=selectedDeathKey) {
+  if(deathAnalysisJobs.has(analysisUrl))return deathAnalysisJobs.get(analysisUrl).promise;const monitor={promise:null};deathAnalysisJobs.set(analysisUrl,monitor);
+  monitor.promise=(async()=>{try{while(true){await new Promise(resolve=>setTimeout(resolve,1000));const response=await fetch(deathAnalysisEndpoint(analysisUrl),{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error([payload.error,payload.guidance].filter(Boolean).join(' ')||`HTTP ${response.status}`);applyDeathAnalysisPayload(analysisUrl,payload,preferredKey);if(!['sequences','report'].includes(payload.state?.status))break;}}
+    catch(error){deathAnalysisErrors.set(analysisUrl,error.message);if(currentMatch?.analysisUrl===analysisUrl)renderDeathAnalysisSummary();}
+    finally{if(deathAnalysisJobs.get(analysisUrl)===monitor)deathAnalysisJobs.delete(analysisUrl);}})();return monitor.promise;
+}
+async function runDeathAiAnalysis() {
+  if(!currentMatch||elements.deathAiButton.disabled)return;const analysisUrl=currentMatch.analysisUrl,previousKey=selectedDeathKey;deathAnalysisErrors.delete(analysisUrl);
+  try{const response=await fetch(deathAnalysisEndpoint(analysisUrl),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh:false})}),payload=await response.json();if(!response.ok)throw new Error([payload.error,payload.guidance].filter(Boolean).join(' ')||`HTTP ${response.status}`);applyDeathAnalysisPayload(analysisUrl,payload,previousKey);void monitorDeathAiAnalysis(analysisUrl,previousKey);}
+  catch(error){deathAnalysisErrors.set(analysisUrl,error.message);if(currentMatch?.analysisUrl===analysisUrl)renderDeathAnalysisSummary();}
+}
+function renderCapabilities() { const names={segmentation:'試合分割',matchOutcome:'勝敗発表',deaths:'本人デス判定',deathExplanation:'デスの状況・原因',playerWeapon:'自分のブキ',playerCounts:'生存人数',playerRoute:'プレイヤー動線',mapAllies:'味方位置・予測',enemyThreats:'相手の脅威範囲予測',enemyRoutes:'相手候補の予測動線',gameCountOcr:'ゲームカウント',stageMap:'ステージマップ'};elements.capabilityList.replaceChildren(...Object.entries(currentAnalysis.capabilities||{}).filter(([key])=>key in names).map(([key,value])=>{const row=document.createElement('div');row.className='capability';const name=document.createElement('strong');name.textContent=names[key];const state=document.createElement('span');const unavailable=value.includes('not-yet')||value.startsWith('unavailable');state.className=unavailable?'limited':'available';state.textContent=unavailable?'未対応':'利用可能';row.append(name,state);return row;})); }
 
 async function openMatch(recording,match) {
-  closeMapEditors({restore:true});currentRecording=recording;currentMatch=match;currentAnalysis=matchMetadataCache.get(match.analysisUrl)||await(await fetch(match.analysisUrl,{cache:'no-store'})).json();matchMetadataCache.set(match.analysisUrl,currentAnalysis);selectedDeathKey=null;elements.recordingView.hidden=true;elements.reviewView.hidden=false;setReviewMode(true);elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;const selfWeapon=currentAnalysis.playerIdentity?.weapon,videoHeading=byId('video-heading'),headingMain=document.createElement('span'),matchChip=document.createElement('span');headingMain.className='video-heading-main';headingMain.textContent='バトル映像';videoHeading.replaceChildren(headingMain);matchChip.className='video-heading-chip match';matchChip.textContent=`動画：試合 ${String(match.number).padStart(2,'0')}`;elements.videoHeadingMeta.replaceChildren(matchChip);if(selfWeapon?.status!=='candidate-only'&&selfWeapon?.name){const weaponChip=document.createElement('span');weaponChip.className='video-heading-chip weapon';weaponChip.textContent=`ブキ：${selfWeapon.name}`;elements.videoHeadingMeta.append(weaponChip);}elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);
+  closeMapEditors({restore:true});currentRecording=recording;currentMatch=match;currentAnalysis=matchMetadataCache.get(match.analysisUrl)||await(await fetch(match.analysisUrl,{cache:'no-store'})).json();matchMetadataCache.set(match.analysisUrl,currentAnalysis);selectedDeathKey=null;elements.recordingView.hidden=true;elements.reviewView.hidden=false;setReviewMode(true);const reviewUrl=`/?recording=${encodeURIComponent(recording.id)}&match=${encodeURIComponent(match.number)}`;if(`${location.pathname}${location.search}`!==reviewUrl)history.pushState({review:true},'',reviewUrl);elements.matchTitle.textContent=`${recording.fileName} / 試合 ${String(match.number).padStart(2,'0')}`;const selfWeapon=currentAnalysis.playerIdentity?.weapon,videoHeading=byId('video-heading'),headingMain=document.createElement('span'),matchChip=document.createElement('span');headingMain.className='video-heading-main';headingMain.textContent='バトル映像';videoHeading.replaceChildren(headingMain);matchChip.className='video-heading-chip match';matchChip.textContent=`動画：試合 ${String(match.number).padStart(2,'0')}`;elements.videoHeadingMeta.replaceChildren(matchChip);if(selfWeapon?.status!=='candidate-only'&&selfWeapon?.name){const weaponChip=document.createElement('span');weaponChip.className='video-heading-chip weapon';weaponChip.textContent=`ブキ：${selfWeapon.name}`;elements.videoHeadingMeta.append(weaponChip);}elements.video.src=match.videoUrl;elements.seek.max=currentAnalysis.media.duration;elements.duration.textContent=formatTime(currentAnalysis.media.duration);
   elements.deathMarkers.replaceChildren(...currentAnalysis.events.filter(event=>event.type==='death').map(event=>{const marker=document.createElement('span');marker.className='death-track-marker';marker.style.left=`${event.time/currentAnalysis.media.duration*100}%`;return marker;}));
-  renderChart();renderMapBase();await loadPositionPlan();renderDeathAnalysisSummary();renderEvents();updatePlaybackUi();
+  renderChart();renderMapBase();await loadPositionPlan();renderDeathAnalysisSummary();renderEvents();updatePlaybackUi();if(['sequences','report'].includes(currentAnalysis.deathAnalysisState?.status))void monitorDeathAiAnalysis(match.analysisUrl);
+}
+
+async function syncReviewFromLocation() {
+  const deepLink=new URLSearchParams(window.location.search),deepRecording=deepLink.get('recording'),deepMatch=Number(deepLink.get('match'));
+  if(deepRecording&&Number.isInteger(deepMatch)){
+    const recording=recordings.find(item=>item.id===deepRecording),match=recording?.matches?.find(item=>item.number===deepMatch&&item.status==='ready');
+    if(recording&&match){if(currentRecording?.id===recording.id&&currentMatch?.number===match.number)return;selectedId=recording.id;renderRecordings();await openMatch(recording,match);return;}
+  }
+  if(currentAnalysis)showAnalysisList();
 }
 
 function updatePlaybackUi() {
   if(!currentAnalysis)return;const time=elements.video.currentTime||0,ratio=Math.max(0,Math.min(1,time/currentAnalysis.media.duration));elements.currentTime.textContent=formatTime(time);elements.seek.value=time;elements.timelineProgress.style.width=`${ratio*100}%`;
   const alive=playerCountAt(time),difference=alive?(alive.difference>0?`${alive.difference}枚有利`:alive.difference<0?`${Math.abs(alive.difference)}枚不利`:'五分'):'—',game=gameCountAt(time),cursorX=chartX(time),labelX=Math.max(84,Math.min(928,cursorX));
-  elements.playerCountStatus.textContent=alive?`自${alive.teamAlive}–敵${alive.enemyAlive}・${difference}`:'人数差 —';elements.gameCountStatus.textContent=game?`カウント 自軍 ${game.teamCount}（+${game.teamPenalty||0}） / 相手 ${game.enemyCount}（+${game.enemyPenalty||0}）`:'カウント —';
-  const cursorLine=svgElement('line',{x1:cursorX,x2:cursorX,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-cursor'}),labelBg=svgElement('rect',{x:labelX-50,y:0,width:100,height:24,rx:8,class:'chart-cursor-label-bg'}),label=svgElement('text',{x:labelX,y:16,'text-anchor':'middle',class:'chart-cursor-label'});label.textContent=difference;elements.chartCursor.replaceChildren(cursorLine,labelBg,label);renderSpatialState(time);
+  elements.playerCountStatus.textContent=alive?`味方${alive.teamAlive}–相手${alive.enemyAlive}・${difference}`:'人数差 —';elements.gameCountStatus.textContent=game?`カウント 味方 ${game.teamCount}（+${game.teamPenalty||0}） / 相手 ${game.enemyCount}（+${game.enemyPenalty||0}）`:'カウント —';
+  const advantageClass=!game?'unknown':alive?(alive.difference>0?'positive':alive.difference<0?'negative':'even'):'unknown',cursorLine=svgElement('line',{x1:cursorX,x2:cursorX,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-cursor'}),labelBg=svgElement('rect',{x:labelX-50,y:0,width:100,height:24,rx:8,class:`chart-cursor-label-bg ${advantageClass}`}),label=svgElement('text',{x:labelX,y:16,'text-anchor':'middle',class:'chart-cursor-label'});label.textContent=difference;elements.chartCursor.replaceChildren(cursorLine,labelBg,label);renderSpatialState(time);
 }
 
 function chartPointerState(event) {
@@ -288,8 +267,8 @@ function chartPointerState(event) {
   return { time, x:chartX(time) };
 }
 function renderChartHover(event) {
-  if(!currentAnalysis)return;const chart=event.currentTarget.closest('svg'),{time,x}=chartPointerState(event),game=gameCountAt(time),boxWidth=410,boxX=Math.max(chartBounds.left,Math.min(chartBounds.right-boxWidth,x-boxWidth/2)),line=svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-hover-line'}),background=svgElement('rect',{x:boxX,y:0,width:boxWidth,height:24,rx:8,class:'chart-hover-bg'}),label=svgElement('text',{x:boxX+boxWidth/2,y:16,'text-anchor':'middle',class:'chart-hover-text'});
-  label.textContent=game?`${formatTime(time)}｜自軍 ${game.teamCount}（ペナ ${game.teamPenalty||0}）｜相手 ${game.enemyCount}（ペナ ${game.enemyPenalty||0}）`:`${formatTime(time)}｜カウントデータなし`;chart.classList.add('is-hovering');elements.chartHover.replaceChildren(line,background,label);
+  if(!currentAnalysis)return;const {time,x}=chartPointerState(event),game=gameCountAt(time),alive=playerCountAt(time),advantageClass=!game?'unknown':alive?(alive.difference>0?'positive':alive.difference<0?'negative':'even'):'unknown',boxWidth=410,boxX=Math.max(chartBounds.left,Math.min(chartBounds.right-boxWidth,x-boxWidth/2)),line=svgElement('line',{x1:x,x2:x,y1:chartBounds.countTop,y2:chartBounds.countBottom,class:'chart-hover-line'}),background=svgElement('rect',{x:boxX,y:chartBounds.hoverTop,width:boxWidth,height:26,rx:8,class:`chart-hover-bg ${advantageClass}`}),label=svgElement('text',{x:boxX+boxWidth/2,y:chartBounds.hoverTop+17,'text-anchor':'middle',class:'chart-hover-text'});
+  label.textContent=game?`${formatTime(time)}｜味方 ${game.teamCount}（+${game.teamPenalty||0}）｜相手 ${game.enemyCount}（+${game.enemyPenalty||0}）`:`${formatTime(time)}｜カウントデータなし`;elements.chartHover.replaceChildren(line,background,label);
 }
 
 async function refresh(){try{const nextRecordings=await(await fetch('/api/recordings')).json(),changed=JSON.stringify(nextRecordings)!==JSON.stringify(recordings);recordings=nextRecordings;if(changed)renderRecordings();}catch(error){console.error(error);}}
@@ -299,7 +278,7 @@ elements.video.addEventListener('click',toggleVideoPlayback);elements.video.addE
 elements.deathAiButton.addEventListener('click',runDeathAiAnalysis);
 elements.deathReportButton.addEventListener('click',openDeathReport);
 document.addEventListener('keydown',event=>{if((event.key!=='ArrowLeft'&&event.key!=='ArrowRight')||elements.reviewView.hidden||elements.mapEditorModal.open)return;const editingTarget=event.target instanceof HTMLElement&&event.target.matches('input:not(#seek),textarea,[contenteditable="true"]');if(editingTarget)return;event.preventDefault();seekBySeconds(event.key==='ArrowLeft'?-1:1);});
-elements.chartHit.addEventListener('pointermove',renderChartHover);elements.chartHit.addEventListener('pointerleave',event=>{event.currentTarget.closest('svg').classList.remove('is-hovering');elements.chartHover.replaceChildren();});
+elements.chartHit.addEventListener('pointermove',renderChartHover);elements.chartHit.addEventListener('pointerleave',()=>{elements.chartHover.replaceChildren();});
 elements.chartHit.addEventListener('pointerdown',event=>{if(!currentAnalysis)return;elements.video.currentTime=chartPointerState(event).time;updatePlaybackUi();});
 elements.strongEditButton.addEventListener('click',()=>{closeMapEditors({restore:true});openMapEditor('有利なポジションを編集');elements.strongEditPanel.hidden=false;createStrongPosition();});
 elements.strongNewButton.addEventListener('click',createStrongPosition);
@@ -308,19 +287,25 @@ elements.strongTipsInput.addEventListener('input',()=>{if(draftStrongSpot){draft
 elements.strongPositionButton.addEventListener('click',()=>{if(!draftStrongSpot)return;setStrongMapMode('strong-position',draftStrongSpot.position?'ステップ1｜変更後のポジションをマップ上でクリック':'ステップ1｜マップ上の有利なポジションをクリック');});
 elements.strongTargetButton.addEventListener('click',()=>{if(!draftStrongSpot?.position)return;setStrongMapMode('strong-target','ステップ2｜その位置から狙うターゲットをマップ上でクリック');});
 elements.strongAddButton.addEventListener('click',async()=>{if(!draftStrongSpot?.position||!draftStrongSpot?.target)return;const previous=clonePositionPlan(currentPositionPlan),spot={...draftStrongSpot,id:draftStrongSpot.id&&draftStrongSpot.id!=='draft'?draftStrongSpot.id:`spot-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,title:elements.strongTitleInput.value.trim(),tips:elements.strongTipsInput.value.trim()};if(draftStrongIndex==null)currentPositionPlan.strongPositions.push(spot);else currentPositionPlan.strongPositions.splice(draftStrongIndex,1,spot);elements.strongAddButton.disabled=true;if(!await savePositionPlan()){currentPositionPlan=previous;updateStrongEditorControls();renderStrongPositionList();renderStrongPositions();return;}clearStrongEditor();});
-elements.briefingToggleButton.addEventListener('click',()=>{closeMapEditors({restore:true});openMapEditor('ブリーフィング');elements.briefingPanel.hidden=false;draftBriefing=null;activeBriefingId=currentPositionPlan.briefings[0]?.id||null;syncBriefingForm();});
-elements.briefingNewButton.addEventListener('click',createBriefing);
-elements.briefingDeleteButton.addEventListener('click',()=>{const index=currentPositionPlan.briefings.findIndex(item=>item.id===activeBriefingId);if(index>=0)currentPositionPlan.briefings.splice(index,1);activeBriefingId=currentPositionPlan.briefings[0]?.id||null;syncBriefingForm();});
-elements.briefingTitleInput.addEventListener('input',()=>{const briefing=activeBriefing();if(briefing){briefing.title=elements.briefingTitleInput.value;renderBriefingList();}});
-elements.briefingSituationInput.addEventListener('input',()=>{const briefing=activeBriefing();if(briefing){briefing.situation=elements.briefingSituationInput.value;renderBriefingList();}});
-elements.briefingMovementInput.addEventListener('input',()=>{const briefing=activeBriefing();if(briefing)briefing.movement=elements.briefingMovementInput.value;});
-elements.briefingRouteButton.addEventListener('click',()=>{mapEditMode=mapEditMode==='briefing-route'?null:'briefing-route';elements.editorMapOverlay.classList.toggle('position-editing',mapEditMode==='briefing-route');elements.briefingRouteButton.classList.toggle('active',mapEditMode==='briefing-route');elements.briefingRouteButton.textContent=mapEditMode==='briefing-route'?'経路指定を終了':'経路を指定';});
-elements.briefingUndoButton.addEventListener('click',()=>{activeBriefing()?.route.pop();renderBriefingRoute();});
-elements.briefingSaveButton.addEventListener('click',async()=>{const briefing=activeBriefing();if(!briefing)return;const previous=clonePositionPlan(currentPositionPlan),creating=Boolean(draftBriefing),savedId=briefing.id;if(creating)currentPositionPlan.briefings.push(clonePositionPlan(briefing));elements.briefingSaveButton.disabled=true;if(!await savePositionPlan()){currentPositionPlan=previous;syncBriefingForm();return;}draftBriefing=null;activeBriefingId=savedId;mapEditMode=null;elements.editorMapOverlay.classList.remove('position-editing');syncBriefingForm();});
-elements.editorMapOverlay.addEventListener('pointerdown',event=>{if(!mapEditMode)return;const bounds=elements.editorMapOverlay.getBoundingClientRect(),point={x:(event.clientX-bounds.left)/bounds.width*1000,y:(event.clientY-bounds.top)/bounds.height*1000};if(mapEditMode==='strong-position'&&draftStrongSpot){draftStrongSpot.position=point;draftStrongSpot.target=null;setStrongMapMode('strong-target','ステップ2｜位置を設定しました。次にターゲットをクリック');updateStrongEditorControls();}else if(mapEditMode==='strong-target'&&draftStrongSpot?.position){draftStrongSpot.target=point;setStrongMapMode('strong-target','ターゲットを設定しました。再クリックで調整、完了したら保存してください');updateStrongEditorControls();}else if(mapEditMode==='briefing-route'){const briefing=activeBriefing();if(briefing&&briefing.route.length<30)briefing.route.push(point);renderBriefingRoute();}renderStrongPositions();});
+elements.editorMapOverlay.addEventListener('pointerdown',event=>{if(!mapEditMode)return;const bounds=elements.editorMapOverlay.getBoundingClientRect(),point={x:(event.clientX-bounds.left)/bounds.width*1000,y:(event.clientY-bounds.top)/bounds.height*1000};if(mapEditMode==='strong-position'&&draftStrongSpot){draftStrongSpot.position=point;draftStrongSpot.target=null;setStrongMapMode('strong-target','ステップ2｜位置を設定しました。次にターゲットをクリック');updateStrongEditorControls();}else if(mapEditMode==='strong-target'&&draftStrongSpot?.position){draftStrongSpot.target=point;setStrongMapMode('strong-target','ターゲットを設定しました。再クリックで調整、完了したら保存してください');updateStrongEditorControls();}renderStrongPositions();});
 elements.editorStageMapImage.addEventListener('load',()=>{if(elements.editorStageMapImage.naturalWidth)elements.editorStageMapImage.parentElement.style.aspectRatio=`${elements.editorStageMapImage.naturalWidth}/${elements.editorStageMapImage.naturalHeight}`;});
 elements.mapEditorModalClose.addEventListener('click',()=>closeMapEditors({restore:true}));
 elements.mapEditorModal.addEventListener('cancel',event=>{event.preventDefault();closeMapEditors({restore:true});});
-elements.reviewBackButton.addEventListener('click',backToAnalysisList);
-byId('scan-button').addEventListener('click',async()=>{await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh();});
-await refresh();setInterval(refresh,2000);
+document.querySelectorAll('[data-review-target]').forEach(button=>button.addEventListener('click',()=>{
+  const target=byId(button.dataset.reviewTarget)?.closest('.panel');
+  target?.scrollIntoView({behavior:'smooth',block:'start'});
+}));
+byId('open-recordings-folder-button').addEventListener('click',async event=>{
+  const button=event.currentTarget,status=byId('folder-open-status');
+  button.disabled=true;status.hidden=true;status.textContent='';
+  try{
+    const response=await fetch('/api/open-recordings-folder',{method:'POST'});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.guidance||result.error||'録画フォルダを開けませんでした。');
+  }catch(error){status.textContent=error.message||'録画フォルダを開けませんでした。エクスプローラーから data/raw を開いてください。';status.hidden=false;}
+  finally{button.disabled=false;}
+});
+await refresh();
+await syncReviewFromLocation();
+window.addEventListener('popstate',()=>{void syncReviewFromLocation();});
+setInterval(refresh,2000);

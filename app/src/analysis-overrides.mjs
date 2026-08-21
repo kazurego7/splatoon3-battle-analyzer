@@ -1,30 +1,3 @@
-// Human-verified facts are kept separate from automatic observations. They are
-// used as regression fixtures while the visual detectors are improved.
-const verified = {
-  '2026-08-08 15-20-32.mp4': {
-    1: {
-      resultDeaths: 9,
-      stage: 'タカアシ経済特区',
-      rule: 'エリア',
-      stageAsset: 'タカアシ経済特区_エリア.webp',
-    },
-    2: { stage: 'タカアシ経済特区', rule: 'エリア', stageAsset: 'タカアシ経済特区_エリア.webp' },
-    3: { stage: 'タカアシ経済特区', rule: 'エリア', stageAsset: 'タカアシ経済特区_エリア.webp' },
-    4: { stage: 'タカアシ経済特区', rule: 'エリア', stageAsset: 'タカアシ経済特区_エリア.webp' },
-  },
-};
-
-export function verifiedAnalysis(sourceFileName, matchNumber) {
-  return verified[sourceFileName]?.[matchNumber] || null;
-}
-
-export function applyVerifiedDeathWindows(deaths, override) {
-  const ignored = override?.ignoredDeathWindows || [];
-  return deaths
-    .filter(death => !ignored.some(([start, end]) => death.time >= start && death.time <= end))
-    .map((death, index) => ({ ...death, id: `death-${index + 1}` }));
-}
-
 export function attachRespawnEvidence(deaths, respawnRuns) {
   const usedRespawns = new Set();
   const merged = deaths.map(death => {

@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeDeathSequencesWithCodex, analyzeDeathsWithCodex, normalizeCodexAnalysis, normalizeCodexPatterns } from '../src/codex-death-analysis.mjs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { analyzeDeathSequencesWithCodex, analyzeDeathsWithCodex, createCodexExitError, normalizeCodexAnalysis, normalizeCodexPatterns, recoverLegacySequenceOutput } from '../src/codex-death-analysis.mjs';
 
 function sequenceDeath(id, overrides = {}) {
   return {
@@ -61,4 +64,64 @@ test('does not generate AI analysis unless explicitly enabled or forced', async 
   assert.equal(result, deaths);
   assert.equal(sequenceResult.deaths, deaths);
   assert.equal(sequenceResult.analysis, null);
+});
+
+test('recovers completed legacy batches so a retry only analyzes missing deaths', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-death-progress-'));
+  const clipPath = path.join(directory, 'match.mp4');
+  try {
+    await fs.writeFile(clipPath, 'clip');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await fs.writeFile(path.join(directory, 'sequence-result-1.json'), JSON.stringify({
+      deaths: [sequenceDeath('death-1'), sequenceDeath('death-2')],
+    }));
+    const recovered = await recoverLegacySequenceOutput(
+      clipPath, directory, new Set(['death-1', 'death-2', 'death-3']), false,
+    );
+    assert.deepEqual(recovered.map(item => item.id), ['death-1', 'death-2']);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('classifies Codex JSONL errors from the CLI response', () => {
+  const limit = createCodexExitError(1, '{"type":"error","error":{"message":"Usage limit reached"}}', '');
+  const network = createCodexExitError(1, '', 'connection reset by peer');
+  const auth = createCodexExitError(1, '', 'Not logged in');
+  assert.equal(limit.code, 'CODEX_LIMIT');
+  assert.equal(limit.codexDetail, 'Usage limit reached');
+  assert.equal(network.code, 'CODEX_NETWORK');
+  assert.equal(auth.code, 'CODEX_AUTH');
+});
+
+test('analyzes all deaths in one run, publishes the death list, then builds the report', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-death-stages-'));
+  const clipPath = path.join(directory, 'match.mp4');
+  const order = [];
+  const deaths = [{ id: 'death-1', time: 10 }, { id: 'death-2', time: 20 }];
+  try {
+    await fs.writeFile(clipPath, 'clip');
+    const result = await analyzeDeathSequencesWithCodex({
+      clipPath, deaths, workDir: directory, matchNumber: 1, force: true, refresh: true, required: true,
+      services: {
+        codexAvailable: async () => true,
+        analyzeSequences: async options => {
+          order.push(`sequences:${options.deaths.length}`);
+          return options.deaths.map(death => sequenceDeath(death.id));
+        },
+        analyzePatterns: async () => {
+          order.push('report');
+          return { overallSummary: '試合全体の要約', patterns: [] };
+        },
+      },
+      onSequences: async stage => {
+        order.push(`published:${stage.deaths.length}`);
+        assert.equal(stage.deaths.every(death => Array.isArray(death.sequence)), true);
+      },
+    });
+    assert.deepEqual(order, ['sequences:2', 'published:2', 'report']);
+    assert.equal(result.analysis.overallSummary, '試合全体の要約');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });

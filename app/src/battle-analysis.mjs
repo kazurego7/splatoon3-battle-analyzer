@@ -2,21 +2,85 @@ function isCross(sample) {
   return sample.diagonalDown >= 0.2 && sample.diagonalUp >= 0.2;
 }
 
+// Compression and the HUD animation often weaken one arm of the gray death X.
+// Require a gray icon plus one strong and one supporting diagonal so that gray
+// spill from an adjacent dead icon is not counted as another death.
+function isDeadPlayerIcon(sample) {
+  if (Number.isFinite(sample.crossDown) && Number.isFinite(sample.crossUp)) {
+    const strongerCross = Math.max(sample.crossDown, sample.crossUp);
+    const weakerCross = Math.min(sample.crossDown, sample.crossUp);
+    return sample.crossNeutralRatio >= 0.38
+      && strongerCross >= 0.48
+      && weakerCross >= 0.35;
+  }
+  const strongerDiagonal = Math.max(sample.diagonalDown, sample.diagonalUp);
+  const weakerDiagonal = Math.min(sample.diagonalDown, sample.diagonalUp);
+  return sample.grayRatio >= 0.22
+    && strongerDiagonal >= 0.3
+    && weakerDiagonal >= 0.12;
+}
+
 function isAlive(sample) {
   return sample.saturatedRatio >= 0.35 && sample.grayRatio <= 0.18 && !isCross(sample);
 }
 
 function iconState(sample) {
-  if (isCross(sample)) return 'dead';
+  if (isDeadPlayerIcon(sample)) return 'dead';
   return 'alive';
 }
 
-function rawPlayerState(sample) {
-  const timerVisible = sample.timer
+function isTimerVisible(sample) {
+  return sample?.timer
     && sample.timer.darkRatio >= 0.22
     && sample.timer.whiteRatio >= 0.025
     && sample.timer.edgeRatio >= 0.035;
-  if (!timerVisible) return null;
+}
+
+export function detectGameplayStart(samples, { earliest = 10, gameplayEnd = Infinity, required = 4 } = {}) {
+  let consecutive = 0;
+  for (let index = 0; index < (samples || []).length; index += 1) {
+    const sample = samples[index];
+    if (sample.time > gameplayEnd) break;
+    if (sample.time < earliest) continue;
+    consecutive = isTimerVisible(sample) ? consecutive + 1 : 0;
+    if (consecutive >= required) {
+      const first = samples[index - required + 1];
+      return first.time;
+    }
+  }
+  return gameplayEnd;
+}
+
+function allPlayersAlive(sample) {
+  return isTimerVisible(sample)
+    && [...(sample.team || []), ...(sample.enemy || [])].length === 8
+    && [...sample.team, ...sample.enemy].every(icon => !isDeadPlayerIcon(icon));
+}
+
+export function openingRosterTimes(samples, {
+  gameplayStart = 0,
+  gameplayEnd = Infinity,
+  maximum = 2,
+  minimumGap = 1.5,
+} = {}) {
+  const source = Array.isArray(samples) ? samples : [];
+  const firstDeath = source.find(sample => sample.time >= gameplayStart && isTimerVisible(sample)
+    && [...(sample.team || []), ...(sample.enemy || [])].some(isDeadPlayerIcon));
+  const latest = Math.min(gameplayEnd, gameplayStart + 20, firstDeath?.time ?? Infinity);
+  const times = [];
+  for (let index = 1; index < source.length - 1; index += 1) {
+    const sample = source[index];
+    if (sample.time < gameplayStart + 0.75 || sample.time >= latest) continue;
+    if (![source[index - 1], sample, source[index + 1]].every(allPlayersAlive)) continue;
+    if (times.length && sample.time - times.at(-1) < minimumGap) continue;
+    times.push(sample.time);
+    if (times.length >= maximum) break;
+  }
+  return times;
+}
+
+function rawPlayerState(sample) {
+  if (!isTimerVisible(sample)) return null;
   const team = sample.team.map(iconState);
   const enemy = sample.enemy.map(iconState);
   const teamAlive = team.filter(state => state === 'alive').length;
@@ -39,13 +103,18 @@ function modeState(states) {
     item.states.push(state);
     counts.set(key, item);
   }
-  return [...counts.values()].sort((a, b) => b.count - a.count)[0];
+  return [...counts.values()].sort((a, b) =>
+    b.count - a.count
+    || b.states.at(-1).time - a.states.at(-1).time)[0];
 }
 
-export function detectPlayerCounts(samples, { gameplayStart = 10, gameplayEnd = Infinity } = {}) {
+export function detectPlayerCounts(samples, { gameplayStart = 10, gameplayEnd = Infinity, hiddenTimes = [] } = {}) {
+  const hiddenAtObservation = time => hiddenTimes.some(hiddenTime => Math.abs(hiddenTime - time) <= 0.6);
+  const hiddenAtHold = time => hiddenTimes.some(hiddenTime => Math.abs(hiddenTime - time) <= 1.5);
   const buckets = new Map();
   for (const sample of samples) {
     if (sample.time < gameplayStart || sample.time > gameplayEnd) continue;
+    if (hiddenAtObservation(sample.time)) continue;
     const state = rawPlayerState(sample);
     if (!state) continue;
     const second = Math.floor(sample.time);
@@ -95,7 +164,7 @@ export function detectPlayerCounts(samples, { gameplayStart = 10, gameplayEnd = 
     if (current) {
       lastObserved = current;
       timeline.push(current);
-    } else if (lastObserved && second + 0.5 - lastObserved.time <= 5) {
+    } else if (lastObserved && (second + 0.5 - lastObserved.time <= 5 || hiddenAtHold(second + 0.5))) {
       const age = second + 0.5 - lastObserved.time;
       timeline.push({
         ...lastObserved,
@@ -135,10 +204,10 @@ function stableAliveAt(samples, startIndex, required = 3) {
   return null;
 }
 
-export function detectSelfDeaths(samples, { duration, gameplayEnd = duration } = {}) {
+export function detectSelfDeaths(samples, { duration, gameplayStart = 10, gameplayEnd = duration } = {}) {
   const eligibleEnd = Math.min(duration, gameplayEnd + 0.5);
   const accepted = candidateRuns(samples)
-    .filter(run => run.start >= 10 && run.start <= eligibleEnd && run.end - run.start >= 1)
+    .filter(run => run.start >= gameplayStart && run.start <= eligibleEnd && run.end - run.start >= 1)
     .filter((run, index, runs) => index === 0 || run.start - runs[index - 1].start >= 10);
 
   return accepted.map((run, index) => {

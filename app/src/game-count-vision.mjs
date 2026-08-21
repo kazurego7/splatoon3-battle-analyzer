@@ -195,10 +195,82 @@ export const countRois = {
   },
 };
 
+export const countUiProfiles = {
+  scoreCard: {
+    id: 'score-card',
+    leftX: 45,
+    rightX: 280,
+    y: 42,
+    leftWidth: 85,
+    rightWidth: 63,
+    boxHeight: BOX_HEIGHT,
+  },
+  objectiveMarker: {
+    id: 'objective-marker',
+    dynamic: true,
+    // This profile uses a wide, short source crop of the objective progress
+    // line. The two count markers move horizontally as the objective advances.
+    leftX: 0,
+    rightX: 400,
+    y: 88,
+    leftWidth: 600,
+    rightWidth: 600,
+    boxHeight: 55,
+  },
+};
+
+const OBJECTIVE_MARKER_RULES = new Set(['ヤグラ', 'ホコ']);
+const PENALTY_RULES = new Set(['エリア', 'アサリ']);
+
+export function countUiProfileForRule(rule) {
+  return OBJECTIVE_MARKER_RULES.has(rule) ? countUiProfiles.objectiveMarker : countUiProfiles.scoreCard;
+}
+
+export function gameCountFrameRegionForRule(rule) {
+  return OBJECTIVE_MARKER_RULES.has(rule)
+    ? { x: 460, y: 135, width: 1000, height: 150 }
+    : { x: 760, y: 120, width: 380, height: 180 };
+}
+
+function detectObjectiveProgressLine(frame, frameWidth) {
+  let bestRuns = 0;
+  let bestSpan = 0;
+  let bestY = null;
+  for (let y = 5; y < Math.min(65, Math.floor(frame.length / (frameWidth * 3))); y += 1) {
+    const runs = [];
+    let start = null;
+    for (let x = 0; x <= frameWidth; x += 1) {
+      let dark = false;
+      if (x < frameWidth) {
+        const at = (y * frameWidth + x) * 3;
+        const luma = frame[at] * 0.299 + frame[at + 1] * 0.587 + frame[at + 2] * 0.114;
+        dark = luma < 58;
+      }
+      if (dark && start == null) start = x;
+      if (!dark && start != null) {
+        const width = x - start;
+        if (width >= 3 && width <= 20) runs.push([start, x - 1]);
+        start = null;
+      }
+    }
+    if (runs.length > bestRuns) {
+      bestRuns = runs.length;
+      bestSpan = runs.length ? runs.at(-1)[1] - runs[0][0] : 0;
+      bestY = y;
+    }
+  }
+  return { visible: bestRuns >= 25 && bestSpan >= 420, bestRuns, bestSpan, bestY };
+}
+
+export function ruleHasVisiblePenalty(rule) {
+  return rule == null || rule === '' || PENALTY_RULES.has(rule);
+}
+
 const model = JSON.parse(fs.readFileSync(new URL('./game-count-model.json', import.meta.url), 'utf8'));
 const calibration = JSON.parse(fs.readFileSync(new URL('./game-count-calibration-model.json', import.meta.url), 'utf8'));
 const penaltyCalibration = JSON.parse(fs.readFileSync(new URL('./game-penalty-calibration-model.json', import.meta.url), 'utf8'));
-export const gameCountModelVersion = `${model.version}-calibration-${calibration.version}-penalty-${penaltyCalibration.version}-instant-count-v3-2hz`;
+const objectiveCalibration = JSON.parse(fs.readFileSync(new URL('./game-count-objective-model.json', import.meta.url), 'utf8'));
+export const gameCountModelVersion = `${model.version}-calibration-${calibration.version}-objective-${objectiveCalibration.version}-penalty-${penaltyCalibration.version}-rule-ui-v1-instant-count-v5-2hz`;
 function unpackSamples(samples) {
   return samples.map(sample => {
   const packed = Buffer.from(sample.bits, 'base64');
@@ -210,6 +282,7 @@ function unpackSamples(samples) {
 const baseModelSamples = unpackSamples(model.samples);
 const modelSamples = [...baseModelSamples, ...unpackSamples(calibration.samples)];
 const penaltyModelSamples = [...baseModelSamples, ...unpackSamples(penaltyCalibration.samples)];
+const objectiveModelSamples = [...modelSamples, ...unpackSamples(objectiveCalibration.samples)];
 
 function glyphDistance(left, right) {
   let mask = 0;
@@ -222,7 +295,11 @@ function glyphDistance(left, right) {
 
 export function rankGlyph(glyph, useCalibration = true) {
   const best = new Map();
-  const samples = useCalibration === 'penalty' ? penaltyModelSamples : useCalibration ? modelSamples : baseModelSamples;
+  const samples = useCalibration === 'penalty'
+    ? penaltyModelSamples
+    : useCalibration === 'objective'
+      ? objectiveModelSamples
+      : useCalibration ? modelSamples : baseModelSamples;
   for (const sample of samples) {
     const score = glyphDistance(glyph, sample);
     if (!best.has(sample.digit) || score < best.get(sample.digit)) best.set(sample.digit, score);
@@ -270,6 +347,173 @@ function multiThresholdCandidates(frame, frameWidth, startX, boxWidth, { y = cou
     .map(candidate => ({ ...candidate, support: supportByValue.get(candidate.value) || 1 }))
     .sort((left, right) => left.cost - right.cost || right.support - left.support)
     .slice(0, 18);
+}
+
+function extractConnectedDigitGlyphs(frame, frameWidth, startX, startY, boxWidth, thresholdMode, boxHeight) {
+  const mask = new Uint8Array(boxWidth * boxHeight);
+  const lumas = new Uint8Array(boxWidth * boxHeight);
+  for (let y = 0; y < boxHeight; y += 1) {
+    for (let x = 0; x < boxWidth; x += 1) {
+      const at = ((startY + y) * frameWidth + startX + x) * 3;
+      lumas[y * boxWidth + x] = Math.round(frame[at] * 0.299 + frame[at + 1] * 0.587 + frame[at + 2] * 0.114);
+    }
+  }
+  const whiteOnly = thresholdMode === 'white';
+  const threshold = typeof thresholdMode === 'number' ? thresholdMode : Math.max(155, otsuThreshold(lumas) + 20);
+  for (let y = 0; y < boxHeight; y += 1) {
+    for (let x = 0; x < boxWidth; x += 1) {
+      if (lumas[y * boxWidth + x] < threshold) continue;
+      if (whiteOnly) {
+        const at = ((startY + y) * frameWidth + startX + x) * 3;
+        const maximum = Math.max(frame[at], frame[at + 1], frame[at + 2]);
+        const minimum = Math.min(frame[at], frame[at + 1], frame[at + 2]);
+        if (maximum - minimum > 72) continue;
+      }
+      mask[y * boxWidth + x] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(mask.length);
+  const glyphs = [];
+  for (let origin = 0; origin < mask.length; origin += 1) {
+    if (!mask[origin] || visited[origin]) continue;
+    const queue = [origin];
+    visited[origin] = 1;
+    let left = boxWidth;
+    let right = -1;
+    let top = boxHeight;
+    let bottom = -1;
+    let pixels = 0;
+    while (queue.length) {
+      const at = queue.pop();
+      const x = at % boxWidth;
+      const y = Math.floor(at / boxWidth);
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+      pixels += 1;
+      for (const [nextX, nextY] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1], [x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1], [x + 1, y + 1]]) {
+        if (nextX < 0 || nextY < 0 || nextX >= boxWidth || nextY >= boxHeight) continue;
+        const next = nextY * boxWidth + nextX;
+        if (!mask[next] || visited[next]) continue;
+        visited[next] = 1;
+        queue.push(next);
+      }
+    }
+    const width = right - left + 1;
+    const height = bottom - top + 1;
+    if (width < 4 || width > 40 || height < 24 || pixels < 45) continue;
+    glyphs.push({
+      bounds: [left, top, right, bottom],
+      width,
+      height,
+      pixels,
+      holes: 0,
+      centerX: 0.5,
+      centerY: 0.5,
+      mask: normalizedMask(mask, boxWidth, boxHeight, [left, top, right, bottom]),
+    });
+  }
+  return glyphs.sort((left, right) => left.bounds[0] - right.bounds[0]);
+}
+
+function groupNearbyGlyphs(glyphs) {
+  const groups = [];
+  let group = [];
+  for (const glyph of glyphs) {
+    const previous = group.at(-1);
+    const gap = previous ? glyph.bounds[0] - previous.bounds[2] - 1 : 0;
+    if (previous && gap > 40) {
+      if (group.length) groups.push(group);
+      group = [];
+    }
+    group.push(glyph);
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
+
+export function extractObjectiveDigitGlyphs(frame, frameWidth, side, value) {
+  const profile = countUiProfiles.objectiveMarker;
+  const startX = side === 'left' ? profile.leftX : profile.rightX;
+  const boxWidth = side === 'left' ? profile.leftWidth : profile.rightWidth;
+  const digitCount = String(value).length;
+  const expectedCenter = side === 'left' ? value * 5 : 500 + (100 - value) * 5;
+  const results = [];
+  for (const threshold of [145, 160, 175, 190, 'white']) {
+    const glyphs = extractConnectedDigitGlyphs(frame, frameWidth, startX, profile.y, boxWidth, threshold, profile.boxHeight);
+    const candidates = [];
+    for (const group of groupNearbyGlyphs(glyphs)) {
+      for (let first = 0; first + digitCount <= group.length; first += 1) {
+        const selected = group.slice(first, first + digitCount);
+        const x = startX + selected[0].bounds[0];
+        const spanWidth = selected.at(-1).bounds[2] - selected[0].bounds[0] + 1;
+        const positionError = Math.abs(x + spanWidth / 2 - expectedCenter);
+        candidates.push({ glyphs: selected, positionError });
+      }
+    }
+    const selected = candidates.sort((left, right) => left.positionError - right.positionError)[0];
+    if (selected && selected.positionError <= 110) results.push({ threshold, ...selected });
+  }
+  return results;
+}
+
+function dynamicObjectiveCandidates(frame, frameWidth, startX, boxWidth, { y, boxHeight, side }) {
+  const byValue = new Map();
+  const supportByValue = new Map();
+  for (const threshold of [145, 160, 175, 190, 'white']) {
+    const glyphs = extractConnectedDigitGlyphs(frame, frameWidth, startX, y, boxWidth, threshold, boxHeight);
+    const groups = groupNearbyGlyphs(glyphs);
+    for (const cluster of groups) {
+      for (let first = 0; first < cluster.length; first += 1) {
+        for (let length = 1; length <= 3 && first + length <= cluster.length; length += 1) {
+          const selected = cluster.slice(first, first + length);
+          for (const candidate of numberCandidates(selected, 'objective')) {
+            const heights = selected.map(glyph => glyph.height);
+            const alignmentPenalty = (Math.max(...heights) - Math.min(...heights)) / 300;
+            const scored = {
+              ...candidate,
+              cost: candidate.cost + alignmentPenalty,
+              threshold,
+              glyphs: selected.length,
+              x: startX + selected[0].bounds[0],
+              spanWidth: selected.at(-1).bounds[2] - selected[0].bounds[0] + 1,
+            };
+            const center = scored.x + scored.spanWidth / 2;
+            const expectedCenter = side === 'left'
+              ? candidate.value * 5
+              : 500 + (100 - candidate.value) * 5;
+            const positionError = Math.abs(center - expectedCenter);
+            if (positionError > 110) continue;
+            scored.positionError = positionError;
+            supportByValue.set(candidate.value, (supportByValue.get(candidate.value) || 0) + 1);
+            const previous = byValue.get(candidate.value);
+            if (!previous || scored.cost < previous.cost) byValue.set(candidate.value, scored);
+          }
+        }
+      }
+    }
+  }
+  return [...byValue.values()]
+    .map(candidate => ({ ...candidate, support: supportByValue.get(candidate.value) || 1 }))
+    .sort((left, right) => left.cost - right.cost || right.glyphs - left.glyphs || right.support - left.support)
+    .slice(0, 24);
+}
+
+function deconflictObjectiveCandidates(leftCandidates, rightCandidates) {
+  const center = candidate => candidate.x + candidate.spanWidth / 2;
+  const overlaps = (candidate, others) => others.filter(other => Math.abs(center(candidate) - center(other)) <= 40);
+  return {
+    left: leftCandidates.filter(candidate => {
+      const matches = overlaps(candidate, rightCandidates);
+      return !matches.length || Math.min(center(candidate), ...matches.map(center)) <= 500;
+    }),
+    right: rightCandidates.filter(candidate => {
+      const matches = overlaps(candidate, leftCandidates);
+      return !matches.length || Math.min(center(candidate), ...matches.map(center)) > 500;
+    }),
+  };
 }
 
 export function detectPenaltyPresence(frame, frameWidth, side) {
@@ -328,44 +572,176 @@ function penaltyObservation(frame, frameWidth, side) {
   };
 }
 
-export function analyzeGameCountFrame(frame, frameWidth, time) {
+export function analyzeGameCountFrame(frame, frameWidth, time, { rule = null } = {}) {
+  const profile = countUiProfileForRule(rule);
+  const hasPenalty = ruleHasVisiblePenalty(rule);
+  const countCandidates = profile.dynamic ? dynamicObjectiveCandidates : multiThresholdCandidates;
+  const objectiveLine = profile.dynamic ? detectObjectiveProgressLine(frame, frameWidth) : null;
+  let rawLeft = countCandidates(frame, frameWidth, profile.leftX, profile.leftWidth, {
+    y: profile.y,
+    boxHeight: profile.boxHeight,
+    side: 'left',
+  });
+  let rawRight = countCandidates(frame, frameWidth, profile.rightX, profile.rightWidth, {
+    y: profile.y,
+    boxHeight: profile.boxHeight,
+    side: 'right',
+  });
+  if (profile.dynamic) {
+    ({ left: rawLeft, right: rawRight } = deconflictObjectiveCandidates(rawLeft, rawRight));
+  }
+  const highCountPanel = candidates => candidates.some(candidate =>
+    candidate.value >= 40 && candidate.glyphs >= 2 && candidate.cost <= 0.28);
+  const objectiveVisible = !profile.dynamic
+    || objectiveLine.visible
+    || (highCountPanel(rawLeft) && highCountPanel(rawRight));
   return {
     time,
-    left: multiThresholdCandidates(frame, frameWidth, countRois.leftX, countRois.leftWidth),
-    right: multiThresholdCandidates(frame, frameWidth, countRois.rightX, countRois.rightWidth),
-    leftPenalty: penaltyObservation(frame, frameWidth, 'left'),
-    rightPenalty: penaltyObservation(frame, frameWidth, 'right'),
+    countUiProfile: profile.id,
+    objectiveVisible,
+    objectiveLine,
+    left: objectiveVisible ? rawLeft : [],
+    right: objectiveVisible ? rawRight : [],
+    leftPenalty: hasPenalty ? penaltyObservation(frame, frameWidth, 'left') : { visible: false, candidates: [] },
+    rightPenalty: hasPenalty ? penaltyObservation(frame, frameWidth, 'right') : { visible: false, candidates: [] },
   };
 }
 
-export function stabilizeGameCount(samples, side, { gameplayStart = 10, gameplayEnd = Infinity } = {}) {
+function stabilizeObjectiveGameCount(samples, side, { gameplayStart = 10, gameplayEnd = Infinity, rule }) {
+  const relevant = samples.filter(sample => sample.time >= gameplayStart && sample.time <= gameplayEnd);
+  if (!relevant.length) return [];
+  const observations = relevant.map(sample => {
+    const byValue = new Map();
+    const credibleMultiDigit = (sample[side] || []).some(candidate => candidate.value >= 10 && candidate.cost <= 0.3);
+    for (const candidate of sample[side] || []) {
+      let cost = candidate.cost - Math.min(0.04, Math.max(0, (candidate.support || 1) - 1) * 0.008);
+      if (candidate.value < 10 && credibleMultiDigit) cost += 0.3;
+      if (!byValue.has(candidate.value) || cost < byValue.get(candidate.value)) byValue.set(candidate.value, cost);
+    }
+    return byValue;
+  });
+  let costs = new Array(101).fill(Infinity);
+  costs[100] = 0;
+  const backPointers = [];
+  for (let index = 0; index < relevant.length; index += 1) {
+    const observation = observations[index];
+    const bestObservedCost = observation.size ? Math.min(...observation.values()) : 0;
+    const nextCosts = new Array(101).fill(Infinity);
+    const previousValues = new Int16Array(101).fill(-1);
+    for (let value = 0; value <= 100; value += 1) {
+      const observedCost = observation.get(value);
+      const emission = observation.size
+        ? observedCost == null ? 0.7 : Math.max(0, observedCost - bestObservedCost) * 4 + observedCost * 0.08
+        : 0;
+      for (let previous = value; previous <= 100; previous += 1) {
+        const drop = previous - value;
+        const transition = drop === 0
+          ? 0
+          : observedCost != null ? 0.025 + drop * 0.07 : Infinity;
+        const cost = costs[previous] + transition + emission;
+        if (cost < nextCosts[value]) {
+          nextCosts[value] = cost;
+          previousValues[value] = previous;
+        }
+      }
+    }
+    costs = nextCosts;
+    backPointers.push(previousValues);
+  }
+  let value = costs.indexOf(Math.min(...costs));
+  const path = new Array(relevant.length);
+  for (let index = relevant.length - 1; index >= 0; index -= 1) {
+    const observedCost = observations[index].get(value);
+    const previous = backPointers[index][value];
+    path[index] = {
+      time: relevant[index].time,
+      value,
+      source: observedCost != null ? 'observed' : previous === value ? 'held' : 'inferred',
+      confidence: observedCost != null
+        ? Math.max(0.4, Math.min(0.98, 1 - observedCost / 0.5))
+        : previous === value ? 0.5 : 0.4,
+    };
+    value = previous < 0 ? value : previous;
+  }
+  // A moving objective marker is occasionally unreadable for one or two frames
+  // (special-effect flashes and the marker icon can cover a digit). When the
+  // surrounding frames are reliable and still show the objective HUD, fill the
+  // short monotonic gap instead of freezing the previous count.
+  for (let index = 1; index < path.length - 1; index += 1) {
+    if (path[index].source !== 'held' || !relevant[index].objectiveVisible) continue;
+    const gapStart = index;
+    while (index < path.length - 1
+      && path[index].source === 'held'
+      && relevant[index].objectiveVisible) index += 1;
+    const gapEnd = index - 1;
+    const previousPoint = path[gapStart - 1];
+    const nextPoint = path[index];
+    const gapLength = gapEnd - gapStart + 1;
+    if (gapLength > 3
+      || previousPoint.source !== 'observed'
+      || nextPoint.source !== 'observed'
+      || nextPoint.value >= previousPoint.value) continue;
+    for (let offset = 1; offset <= gapLength; offset += 1) {
+      const interpolated = Math.round(previousPoint.value
+        + (nextPoint.value - previousPoint.value) * offset / (gapLength + 1));
+      path[gapStart + offset - 1] = {
+        ...path[gapStart + offset - 1],
+        value: interpolated,
+        source: 'inferred',
+        confidence: 0.62,
+      };
+    }
+  }
+  return path;
+}
+
+export function stabilizeGameCount(samples, side, { gameplayStart = 10, gameplayEnd = Infinity, rule = null } = {}) {
+  if (OBJECTIVE_MARKER_RULES.has(rule)) {
+    return stabilizeObjectiveGameCount(samples, side, { gameplayStart, gameplayEnd, rule });
+  }
   const relevant = samples.filter(sample => sample.time >= gameplayStart && sample.time <= gameplayEnd);
   if (!relevant.length) return [];
   const observations = relevant.map(sample => {
     const byValue = new Map();
     for (const candidate of sample[side] || []) {
       const adjustedCost = candidate.cost - Math.min(0.06, Math.max(0, (candidate.support || 1) - 1) * 0.012);
-      if (!byValue.has(candidate.value) || adjustedCost < byValue.get(candidate.value)) byValue.set(candidate.value, adjustedCost);
+      const observation = { cost: adjustedCost, glyphs: candidate.glyphs || String(candidate.value).length };
+      if (!byValue.has(candidate.value) || adjustedCost < byValue.get(candidate.value).cost) byValue.set(candidate.value, observation);
     }
     return byValue;
   });
   let value = 100;
   let lastChangeTime = -Infinity;
+  let lastReliableTime = relevant[0].time;
   const path = [];
   for (let index = 0; index < relevant.length; index += 1) {
+    const hasCredibleMultiDigit = [...observations[index].entries()].some(([candidate, observation]) =>
+      candidate >= 10 && candidate <= value && observation.cost <= 0.3);
     const candidates = [...observations[index].entries()]
       .filter(([candidate]) => candidate <= value)
+      .map(([candidate, observation]) => [candidate, observation.cost
+        + (value >= 10 && candidate < 10 && hasCredibleMultiDigit ? 0.2 : 0)])
       .sort((left, right) => left[1] - right[1]);
-    const currentCost = observations[index].get(value);
-    const currentStillVisible = currentCost != null && currentCost <= (candidates[0]?.[1] ?? currentCost) + 0.14;
+    const currentObservation = observations[index].get(value);
+    const currentCost = currentObservation?.cost;
+    const currentVisibilityMargin = OBJECTIVE_MARKER_RULES.has(rule) ? 0.025 : 0.14;
+    const currentStillVisible = currentCost != null
+      && currentCost <= (candidates[0]?.[1] ?? currentCost) + currentVisibilityMargin;
     let selected = currentStillVisible ? [value, currentCost] : candidates.find(([candidate, cost]) => {
       if (candidate === value) return true;
       const bestCost = candidates[0]?.[1] ?? cost;
       if (cost > bestCost + 0.16) return false;
+      const maximumRate = rule === 'エリア' ? 2.25 : rule === 'ヤグラ' ? 2.5 : rule === 'ホコ' ? 6 : null;
+      if (maximumRate != null) {
+        const elapsed = Math.max(0.5, relevant[index].time - lastReliableTime);
+        const maximumDrop = Math.ceil(elapsed * maximumRate) + 1;
+        if (value - candidate > maximumDrop) return false;
+      }
       const activeScoringRun = relevant[index].time - lastChangeTime <= 2;
       if (value >= 50 && candidate <= 9 && !activeScoringRun) return false;
       const nextBest = observations.slice(index + 1, index + 5)
-        .map(future => [...future.entries()].sort((left, right) => left[1] - right[1])[0])
+        .map(future => [...future.entries()].map(([futureValue, observation]) => [futureValue, observation.cost])
+          .sort((left, right) => left[1] - right[1])[0])
         .find(Boolean);
       const confirmedSoon = nextBest && nextBest[0] <= candidate && nextBest[1] <= 0.24;
       // Score counts never increase. If a proposed lower value is followed
@@ -373,16 +749,20 @@ export function stabilizeGameCount(samples, side, { gameplayStart = 10, gameplay
       // transient overlay or a partially hidden digit. Reject it before the
       // monotonic timeline makes that OCR error permanent.
       const recoversSoon = observations.slice(index + 1, index + 7).some(future => {
-        const best = [...future.entries()].sort((left, right) => left[1] - right[1])[0];
+        const best = [...future.entries()].map(([futureValue, observation]) => [futureValue, observation.cost])
+          .sort((left, right) => left[1] - right[1])[0];
         return best && best[0] > candidate && best[0] <= value && best[1] <= 0.24;
       });
-      if (recoversSoon) return false;
+      const likelyLeadingEleven = candidate === 1 && value >= 10 && value < 20
+        && nextBest && nextBest[0] >= 2 && nextBest[0] <= 9;
+      if (recoversSoon && !likelyLeadingEleven) return false;
       if (value >= 20 && candidate <= 9) return activeScoringRun && confirmedSoon;
       return confirmedSoon || activeScoringRun;
     });
     if (selected?.[0] === 1 && value >= 10 && value < 20) {
       const nextBest = observations.slice(index + 1, index + 5)
-        .map(future => [...future.entries()].sort((left, right) => left[1] - right[1])[0])
+        .map(future => [...future.entries()].map(([futureValue, observation]) => [futureValue, observation.cost])
+          .sort((left, right) => left[1] - right[1])[0])
         .find(Boolean);
       if (nextBest && nextBest[0] >= 2 && nextBest[0] <= 9) selected = [11, selected[1]];
     }
@@ -391,7 +771,8 @@ export function stabilizeGameCount(samples, side, { gameplayStart = 10, gameplay
       value = selected[0];
       lastChangeTime = relevant[index].time;
     }
-    const observedCost = observations[index].get(value);
+    const observedCost = observations[index].get(value)?.cost;
+    if (observedCost != null && observedCost <= 0.3) lastReliableTime = relevant[index].time;
     path.push({
       time: relevant[index].time,
       value,
@@ -443,7 +824,7 @@ export function stabilizePenalty(samples, side, { gameplayStart = 10, gameplayEn
     for (let value = 0; value <= 99; value += 1) {
       const observedCost = byValue.get(value);
       const emission = kind === 'visible'
-        ? (observedCost == null ? (value === 0 ? 1.4 : 0.5) : Math.max(0, observedCost - bestObservedCost) * 3 + observedCost * 0.15)
+        ? (observedCost == null ? (value === 0 ? 1.4 : 0.2) : Math.max(0, observedCost - bestObservedCost) * 3 + observedCost * 0.15)
         : kind === 'absent' ? (value === 0 ? 0 : 0.6) : 0.025;
       for (let previous = 0; previous <= 99; previous += 1) {
         let transition;
@@ -452,7 +833,7 @@ export function stabilizePenalty(samples, side, { gameplayStart = 10, gameplayEn
         else if (value === 0) transition = kind === 'absent' ? 0.06 : 0.9;
         else if (value < previous) {
           const drop = previous - value;
-          transition = drop <= 4 ? drop * 0.012 : 0.45 + drop * 0.004;
+          transition = drop <= 4 ? 0.16 + drop * 0.02 : 0.45 + drop * 0.004;
         } else transition = 0.4 + (value - previous) * 0.004;
         if ((kind === 'hidden' || kind === 'occluded') && previous !== value) transition += 0.4;
         const cost = costs[previous] + transition + emission;
@@ -498,6 +879,36 @@ export function stabilizePenalty(samples, side, { gameplayStart = 10, gameplayEn
       confidence: Math.min(path[index].confidence, 0.45),
     };
     start = Math.max(start, confirmed - 1);
+  }
+  // A real penalty increase starts at the first frame where the new value is
+  // observed. Viterbi can otherwise pull a later sustained value backward over
+  // an earlier, equally sustained value.
+  for (let index = 1; index < path.length; index += 1) {
+    const bestAt = at => [...observations[at].byValue.entries()].sort((left, right) => left[1] - right[1])[0];
+    const current = bestAt(index);
+    if (!current || current[1] > 0.12) continue;
+    const sustained = [index + 1, index + 2].some(at => at < observations.length
+      && observations[at].byValue.get(current[0]) <= 0.12);
+    if (!sustained) continue;
+    let previousIndex = index - 1;
+    while (previousIndex >= 0 && !bestAt(previousIndex)) previousIndex -= 1;
+    const previous = previousIndex >= 0 ? bestAt(previousIndex) : null;
+    if (!previous || previous[0] <= 0 || current[0] <= previous[0]) continue;
+    const previousValue = previous[0];
+    const previousSupport = observations.slice(Math.max(0, previousIndex - 3), previousIndex + 1)
+      .filter(observation => observation.byValue.get(previousValue) <= 0.12).length;
+    if (previousSupport < 2) continue;
+    let start = previousIndex;
+    while (start > 0 && observations[start - 1].byValue.has(previousValue)) start -= 1;
+    for (let back = start; back < index; back += 1) {
+      const observedCost = observations[back].byValue.get(previousValue);
+      path[back] = {
+        ...path[back],
+        value: previousValue,
+        source: observedCost == null ? 'held' : 'observed',
+        confidence: observedCost == null ? 0.45 : Math.max(0.35, Math.min(0.98, 1 - observedCost / 0.5)),
+      };
+    }
   }
   // A hidden HUD can make a stable penalty disappear for a few seconds, and
   // one bad OCR frame can create a short 22 -> 23 -> 22 spike. If the same
@@ -554,12 +965,20 @@ export function detectGameCounts(samples, options = {}) {
     right: [],
     leftPenalty: { visible: false, candidates: [] },
     rightPenalty: { visible: false, candidates: [] },
-  } : sample);
+  } : OBJECTIVE_MARKER_RULES.has(options.rule) ? (() => {
+    const deconflicted = deconflictObjectiveCandidates(sample.left || [], sample.right || []);
+    return {
+      ...sample,
+      ...deconflicted,
+    };
+  })() : sample);
   const countSamples = sanitizedSamples.map(sample => {
     const result = { ...sample };
+    const independentPanels = OBJECTIVE_MARKER_RULES.has(options.rule);
     const panelVisible = Object.fromEntries(['left', 'right'].map(side => [side, (sample[side] || [])
       .some(candidate => candidate.threshold === 'white' && candidate.cost <= 0.24
         || candidate.cost <= 0.08
+        || candidate.cost <= 0.18
         || (candidate.cost <= 0.24 && (candidate.support || 1) >= 2))]));
     for (const side of ['left', 'right']) {
       const candidates = sample[side] || [];
@@ -567,7 +986,7 @@ export function detectGameCounts(samples, options = {}) {
       const isolatedZero = best?.value === 0
         && !candidates.some(candidate => candidate.value > 1 && candidate.cost <= best.cost + 0.12);
       const otherSide = side === 'left' ? 'right' : 'left';
-      if (!panelVisible[side] || !panelVisible[otherSide] || isolatedZero) result[side] = [];
+      if (!panelVisible[side] || (!independentPanels && !panelVisible[otherSide]) || isolatedZero) result[side] = [];
     }
     return result;
   });
@@ -579,8 +998,9 @@ export function detectGameCounts(samples, options = {}) {
   const countOptions = { ...options, gameplayStart: Math.max(options.gameplayStart ?? 10, detectedStart) };
   const team = stabilizeGameCount(countSamples, 'left', countOptions);
   const enemy = stabilizeGameCount(countSamples, 'right', countOptions);
-  const teamPenalty = stabilizePenalty(sanitizedSamples, 'leftPenalty', countOptions);
-  const enemyPenalty = stabilizePenalty(sanitizedSamples, 'rightPenalty', countOptions);
+  const hasPenalty = ruleHasVisiblePenalty(options.rule);
+  const teamPenalty = hasPenalty ? stabilizePenalty(sanitizedSamples, 'leftPenalty', countOptions) : [];
+  const enemyPenalty = hasPenalty ? stabilizePenalty(sanitizedSamples, 'rightPenalty', countOptions) : [];
   const enemyByTime = new Map(enemy.map(item => [item.time, item]));
   const teamPenaltyByTime = new Map(teamPenalty.map(item => [item.time, item]));
   const enemyPenaltyByTime = new Map(enemyPenalty.map(item => [item.time, item]));

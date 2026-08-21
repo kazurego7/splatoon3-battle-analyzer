@@ -1,11 +1,11 @@
 # Third-party data
 
-`src/weapon-catalog.json` はGit管理しません。手元で利用条件を確認した第三者データから生成する任意機能で、ファイルがなくてもアプリは起動し、ブキ名判定だけが無効になります。
+`src/weapon-catalog.json` と `../assets/weapon-icons/images/` はGit管理しません。取得元の利用条件を確認してローカル生成する任意機能で、ファイルがなくてもアプリは起動し、ブキ名判定だけが無効になります。
 
-現在の生成スクリプトは [Leanny/splat3](https://github.com/Leanny/splat3) の `WeaponInfoMain.json` と `images/weapon_flat` を入力形式として想定しています。このリポジトリは元データ、元画像、生成済みカタログを再配布しません。利用者自身が取得元の権利・利用条件を確認したローカルコピーを用意した場合だけ、次を実行してください。
+生成スクリプトは [Splatoon3 攻略＆検証 Wiki の icon ページ](https://wikiwiki.jp/splatoon3mix/icon)からメインブキ画像・名称とルールアイコンを取得します。このリポジトリは取得画像や生成済みカタログを再配布しません。利用者自身が取得元の権利・利用条件を確認したうえで、次を実行してください。
 
 ```powershell
-npm run sync:weapons -- <Leanny/splat3 のローカルパス>
+npm run sync:icons
 ```
 
-生成物は `src/weapon-catalog.json` に保存されますが、`.gitignore` によりコミット対象になりません。元のPNG画像は収録せず、32×20の照合特徴だけを保持します。
+取得画像は `../assets/weapon-icons/images/`、取得元URLとハッシュは `../assets/weapon-icons/manifest.json`、照合特徴は `src/weapon-catalog.json` に保存されます。すべて `.gitignore` によりコミット対象になりません。

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "reviewedAt": "2026-08-10",
-  "description": "個人・全体リザルトのルール／ステージ見出しを目視確認した回帰評価セット。resultTimeがnullの試合も判定失敗として分母に含める。",
+  "description": "試合開始画面のルール／ステージ表示を目視確認した回帰評価セット。",
   "minimumAccuracy": 0.8,
   "matches": [
     { "recordingId": "2026-08-07-20-49-39-e9b8836b", "match": 1, "resultTime": 357, "stage": "スメーシーワールド", "rule": "ヤグラ" },

@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeSelfDeaths, detectPlayerCounts, detectSelfDeaths } from '../src/battle-analysis.mjs';
-import { detectGameCounts, stabilizeGameCount, stabilizePenalty } from '../src/game-count-vision.mjs';
-import { findResultTable, findSelfResultRow } from '../src/player-identity.mjs';
-import { analyzeMapCandidate, analyzeMapCloseButton, analyzeMapPanelConnections, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame } from '../src/map-analysis.mjs';
-import { applyVerifiedDeathWindows, attachRespawnEvidence, verifiedAnalysis } from '../src/analysis-overrides.mjs';
+import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths, openingRosterTimes } from '../src/battle-analysis.mjs';
+import { countUiProfileForRule, detectGameCounts, gameCountFrameRegionForRule, ruleHasVisiblePenalty, stabilizeGameCount, stabilizePenalty } from '../src/game-count-vision.mjs';
+import { analyzeMapCandidate, analyzeMapCloseButton, analyzeMapPanelConnections, analyzeMapStartPointButton, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame, stabilizeMapVisibility } from '../src/map-analysis.mjs';
+import { attachRespawnEvidence } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
 import { classifyWeaponFeature, weaponCatalogMetadata, weaponReferenceFeature } from '../src/weapon-analysis.mjs';
 
 function sample(time, state = 'alive') {
   if (state === 'cross') return { time, saturatedRatio: 0.08, grayRatio: 0.32, diagonalDown: 0.4, diagonalUp: 0.38 };
+  if (state === 'soft-cross') return { time, saturatedRatio: 0.34, grayRatio: 0.28, diagonalDown: 0.4, diagonalUp: 0.17 };
   if (state === 'unknown') return { time, saturatedRatio: 0.12, grayRatio: 0.12, diagonalDown: 0.05, diagonalUp: 0.06 };
   return { time, saturatedRatio: 0.58, grayRatio: 0.06, diagonalDown: 0.03, diagonalUp: 0.04 };
 }
@@ -39,6 +39,33 @@ test('rejects intermittent cross-like flashes while the player remains alive', (
   assert.deepEqual(detectSelfDeaths(samples, { duration: 45, gameplayEnd: 40 }), []);
 });
 
+test('starts death detection only after the match timer is stably visible', () => {
+  const battleSamples = [];
+  const selfSamples = [];
+  for (let time = 0; time <= 30; time += 0.25) {
+    const timerVisible = (time >= 0.75 && time <= 2) || time >= 14;
+    battleSamples.push({
+      time,
+      timer: timerVisible
+        ? { darkRatio: 0.42, whiteRatio: 0.1, edgeRatio: 0.1 }
+        : { darkRatio: 0.01, whiteRatio: 0.04, edgeRatio: 0.07 },
+    });
+    const openingFalseCross = time >= 11 && time <= 12.25;
+    const realDeath = time >= 20 && time <= 22;
+    selfSamples.push(sample(time, openingFalseCross || realDeath ? 'cross' : 'alive'));
+  }
+  const gameplayStart = detectGameplayStart(battleSamples, { gameplayEnd: 30 });
+  assert.equal(gameplayStart, 14);
+  assert.deepEqual(
+    detectSelfDeaths(selfSamples, { duration: 30, gameplayStart, gameplayEnd: 30 }).map(death => death.time),
+    [20],
+  );
+});
+
+test('does not open the death-detection window when the match timer cannot be detected', () => {
+  assert.equal(detectGameplayStart([], { gameplayEnd: 240 }), 240);
+});
+
 test('describes each death with a how-it-happened title, situation, and cause', () => {
   const [death] = describeSelfDeaths(
     [{ id: 'death-1', time: 20, type: 'death', title: '自分がデス' }],
@@ -64,6 +91,12 @@ function battleHudSample(time, teamDead = 1, enemyDead = 0, timerVisible = true)
   };
 }
 
+test('編成画像は試合開始後かつ最初のデスより前の全員生存フレームだけを選ぶ', () => {
+  const samples = Array.from({ length: 25 }, (_, index) => battleHudSample(index * 0.5, 0, 0, true));
+  for (const item of samples.filter(candidate => candidate.time >= 5)) item.team[0] = sample(item.time, 'cross');
+  assert.deepEqual(openingRosterTimes(samples, { gameplayStart: 1, gameplayEnd: 12 }), [2, 3.5]);
+});
+
 test('detects player advantage, removes isolated flips, and holds through hidden HUD', () => {
   const samples = [];
   for (let time = 10; time < 18; time += 0.25) {
@@ -82,6 +115,54 @@ test('detects player advantage, removes isolated flips, and holds through hidden
   assert.ok(at17.confidence < at11.confidence);
 });
 
+test('holds the last player count for the full duration of an open map', () => {
+  const samples = [];
+  for (let time = 10; time <= 20; time += 0.25) {
+    samples.push(battleHudSample(time, time < 13 ? 1 : 4, time < 13 ? 0 : 4, true));
+  }
+  const timeline = detectPlayerCounts(samples, {
+    gameplayStart: 10,
+    gameplayEnd: 20,
+    hiddenTimes: [13, 14, 15, 16, 17, 18, 19, 20],
+  });
+  assert.equal(timeline.at(-1).time, 20.5);
+  assert.deepEqual([timeline.at(-1).teamAlive, timeline.at(-1).enemyAlive], [3, 4]);
+  assert.equal(timeline.at(-1).source, 'held');
+});
+
+test('counts a compressed death X with one weak diagonal without killing its gray neighbor', () => {
+  const samples = [];
+  for (let time = 10; time < 12; time += 0.25) {
+    const frame = battleHudSample(time, 0, 0, true);
+    frame.enemy[1] = { time, saturatedRatio: 0.4, grayRatio: 0.23, diagonalDown: 0.25, diagonalUp: 0.22 };
+    frame.enemy[2] = sample(time, 'soft-cross');
+    samples.push(frame);
+  }
+  const timeline = detectPlayerCounts(samples, { gameplayStart: 10, gameplayEnd: 11 });
+  assert.deepEqual(timeline.map(state => [state.teamAlive, state.enemyAlive]), [[4, 3], [4, 3]]);
+});
+
+test('uses the centered cross shape instead of a gray special icon for player counts', () => {
+  const samples = [];
+  for (let time = 10; time < 12; time += 0.25) {
+    const frame = battleHudSample(time, 0, 0, true);
+    Object.assign(frame.enemy[0], { crossNeutralRatio: 0.2, crossDown: 0.17, crossUp: 0.33 });
+    Object.assign(frame.enemy[2], { crossNeutralRatio: 0.47, crossDown: 0.66, crossUp: 0.49 });
+    samples.push(frame);
+  }
+  const timeline = detectPlayerCounts(samples, { gameplayStart: 10, gameplayEnd: 11 });
+  assert.deepEqual(timeline.map(state => [state.teamAlive, state.enemyAlive]), [[4, 3], [4, 3]]);
+});
+
+test('uses the newer HUD state when a one-second bucket is evenly split', () => {
+  const samples = [
+    battleHudSample(10, 0, 0), battleHudSample(10.25, 0, 0),
+    battleHudSample(10.5, 0, 1), battleHudSample(10.75, 0, 1),
+  ];
+  const [state] = detectPlayerCounts(samples, { gameplayStart: 10, gameplayEnd: 10.75 });
+  assert.deepEqual([state.teamAlive, state.enemyAlive, state.difference], [4, 3, 1]);
+});
+
 test('game count stabilization rejects impossible OCR jumps', () => {
   const samples = [
     { time: 10, left: [{ value: 100, cost: 0.04 }] },
@@ -92,6 +173,32 @@ test('game count stabilization rejects impossible OCR jumps', () => {
   const timeline = stabilizeGameCount(samples, 'left', { gameplayStart: 10, gameplayEnd: 13 });
   assert.deepEqual(timeline.map(item => item.value), [100, 99, 98, 98]);
   assert.equal(timeline.at(-1).source, 'held');
+});
+
+test('selects the count HUD and penalty behavior for each ranked rule', () => {
+  assert.equal(countUiProfileForRule('エリア').id, 'score-card');
+  assert.equal(countUiProfileForRule('アサリ').id, 'score-card');
+  assert.equal(countUiProfileForRule('ヤグラ').id, 'objective-marker');
+  assert.equal(countUiProfileForRule('ホコ').id, 'objective-marker');
+  assert.equal(ruleHasVisiblePenalty('エリア'), true);
+  assert.equal(ruleHasVisiblePenalty('アサリ'), true);
+  assert.equal(ruleHasVisiblePenalty('ヤグラ'), false);
+  assert.equal(ruleHasVisiblePenalty('ホコ'), false);
+  assert.deepEqual(gameCountFrameRegionForRule('エリア'), { x: 760, y: 120, width: 380, height: 180 });
+  assert.deepEqual(gameCountFrameRegionForRule('ヤグラ'), { x: 460, y: 135, width: 1000, height: 150 });
+});
+
+test('objective rules ignore numeric penalty artifacts', () => {
+  const candidate = (value, x) => [{ value, cost: 0.02, support: 5, glyphs: String(value).length, x, spanWidth: 40 }];
+  const fakePenalty = { visible: true, candidates: [{ value: 27, cost: 0.01, support: 8 }] };
+  const samples = [
+    { time: 10, objectiveVisible: true, left: candidate(100, 430), right: candidate(100, 530), leftPenalty: fakePenalty, rightPenalty: fakePenalty },
+    { time: 10.5, objectiveVisible: true, left: candidate(95, 405), right: candidate(100, 530), leftPenalty: fakePenalty, rightPenalty: fakePenalty },
+    { time: 11, objectiveVisible: true, left: candidate(90, 380), right: candidate(100, 530), leftPenalty: fakePenalty, rightPenalty: fakePenalty },
+  ];
+  const timeline = detectGameCounts(samples, { gameplayStart: 10, gameplayEnd: 11, rule: 'ヤグラ' });
+  assert.deepEqual(timeline.map(item => [item.teamCount, item.enemyCount]), [[100, 100], [95, 100], [90, 100]]);
+  assert.ok(timeline.every(item => item.teamPenalty === 0 && item.enemyPenalty === 0));
 });
 
 test('game count stabilization infers a real large drop across intermediate frames', () => {
@@ -257,28 +364,6 @@ test('game count detection holds counts and penalties while the map hides the HU
   ]);
 });
 
-test('finds the yellow self marker only on a detailed result table', () => {
-  const width = 960;
-  const height = 540;
-  const frame = Buffer.alloc(width * height * 3, 28);
-  const paint = (left, top, boxWidth, boxHeight, color) => {
-    for (let y = top; y < top + boxHeight; y += 1) {
-      for (let x = left; x < left + boxWidth; x += 1) {
-        const at = (y * width + x) * 3;
-        frame[at] = color[0]; frame[at + 1] = color[1]; frame[at + 2] = color[2];
-      }
-    }
-  };
-  for (let y = 150; y < 510; y += 30) paint(500, y, 16, 30, [230, 230, 230]);
-  paint(468, 404, 22, 22, [245, 195, 20]);
-  const result = findSelfResultRow(frame);
-  assert.ok(findResultTable(frame), 'the table structure must be detectable independently of the self marker');
-  assert.ok(result);
-  assert.equal(result.resultRows, 12);
-  assert.equal(result.marker.x, 468);
-  assert.equal(result.marker.y, 404);
-});
-
 test('selects an observed map frame inside a death review window', () => {
   const width = 960;
   const height = 540;
@@ -308,6 +393,88 @@ test('distinguishes the map close button from the higher battle HUD cross', () =
   };
   assert.equal(analyzeMapCloseButton(drawCross(36), width, height).visible, true);
   assert.equal(analyzeMapCloseButton(drawCross(29), width, height).visible, false);
+});
+
+test('detects the fixed start-point button without matching an unrelated bright banner', () => {
+  const width = 960;
+  const height = 540;
+  const frame = Buffer.alloc(width * height * 3, 120);
+  const paint = (target, left, top, boxWidth, boxHeight, color) => {
+    for (let y = top; y < top + boxHeight; y += 1) for (let x = left; x < left + boxWidth; x += 1) {
+      const at = (y * width + x) * 3;
+      target[at] = color[0]; target[at + 1] = color[1]; target[at + 2] = color[2];
+    }
+  };
+  paint(frame, 462, 483, 60, 21, [35, 35, 35]);
+  for (const top of [483, 495]) {
+    for (let y = top; y < top + 11; y += 1) for (let x = 454; x < 478; x += 1) {
+      if (x >= 457 && x < 475 && y >= top + 3 && y < top + 8) continue;
+      const at = (y * width + x) * 3;
+      frame[at] = 225; frame[at + 1] = 225; frame[at + 2] = 225;
+    }
+  }
+  for (const left of [483, 493, 503, 513]) {
+    for (let y = 488; y < 501; y += 1) for (let x = left; x < left + 6; x += 1) {
+      if (y !== 488 && x % 2) continue;
+      const at = (y * width + x) * 3;
+      frame[at] = 225; frame[at + 1] = 225; frame[at + 2] = 225;
+    }
+  }
+  const detected = analyzeMapStartPointButton(frame, width, height);
+  assert.equal(detected.visible, true);
+  assert.equal(detected.arrowComponents, 2);
+
+  const banner = Buffer.alloc(width * height * 3, 120);
+  paint(banner, 462, 483, 60, 21, [225, 225, 225]);
+  assert.equal(analyzeMapStartPointButton(banner, width, height).visible, false);
+});
+
+test('fills only a structurally valid map frame bracketed by confirmed map frames', () => {
+  const samples = [
+    { time: 10, neutralRatio: 0.42, score: 0.37, mapUi: { visible: true } },
+    { time: 10.5, neutralRatio: 0.43, score: 0.38, mapUi: { visible: false } },
+    { time: 11, neutralRatio: 0.41, score: 0.36, mapUi: { visible: true } },
+    { time: 11.5, neutralRatio: 0.2, score: 0.18, mapUi: { visible: false } },
+  ];
+  const stabilized = stabilizeMapVisibility(samples);
+  assert.equal(stabilized[1].mapUi.visible, true);
+  assert.equal(stabilized[1].mapUi.visibleSource, 'temporal-continuity-between-map-frames');
+  assert.equal(stabilized[3].mapUi.visible, false);
+});
+
+test('promotes a faded but structurally intact start-point button to map-visible', () => {
+  const [sample] = stabilizeMapVisibility([{
+    time: 20,
+    neutralRatio: 0.1,
+    score: 0.1,
+    mapUi: {
+      visible: false,
+      startPointButton: {
+        visible: false,
+        darkRatio: 0,
+        whiteRatio: 0.29,
+        edgeRatio: 0.12,
+        glyphComponents: 5,
+        arrowComponents: 2,
+      },
+    },
+  }]);
+  assert.equal(sample.mapUi.visible, true);
+  assert.equal(sample.mapUi.visibleSource, 'start-point-button-fixed-ui');
+});
+
+test('extends map visibility by one structural transition frame without chaining', () => {
+  const initial = [
+    { time: 9.5, neutralRatio: 0.31, score: 0.28, mapUi: { visible: false } },
+    { time: 10, neutralRatio: 0.42, score: 0.37, mapUi: { visible: true, visibleSource: 'start-point-button-fixed-ui' } },
+    { time: 10.5, neutralRatio: 0.33, score: 0.29, mapUi: { visible: false } },
+    { time: 11, neutralRatio: 0.34, score: 0.3, mapUi: { visible: false } },
+  ];
+  const samples = stabilizeMapVisibility(initial);
+  assert.equal(samples[0].mapUi.visibleSource, 'temporal-adjacent-map-transition');
+  assert.equal(samples[2].mapUi.visibleSource, 'temporal-adjacent-map-transition');
+  assert.equal(samples[3].mapUi.visible, false);
+  assert.deepEqual(stabilizeMapVisibility(samples), samples);
 });
 
 test('keeps the map cursor separate from a grounded self marker', () => {
@@ -472,20 +639,6 @@ test('represents a grounded enemy hypothesis as an expanding uncertainty zone in
   assert.deepEqual(buildEnemyThreatZones([{ id: 'death-2', time: 10 }], [{ time: 30, x: 1, y: 1 }]), []);
 });
 
-test('removes only human-verified false death windows', () => {
-  const deaths = [{ time: 35.5 }, { time: 95.25 }, { time: 123.25 }];
-  assert.deepEqual(
-    applyVerifiedDeathWindows(deaths, { ignoredDeathWindows: [[30, 45]] }).map(death => death.time),
-    [95.25, 123.25],
-  );
-});
-
-test('does not suppress the verified self death around 00:33', () => {
-  const override = verifiedAnalysis('2026-08-08 15-20-32.mp4', 1);
-  const deaths = [{ time: 33.25, evidence: { detector: 'self-hud-cross' } }];
-  assert.deepEqual(applyVerifiedDeathWindows(deaths, override).map(death => death.time), [33.25]);
-});
-
 test('attaches respawn countdown evidence to the matching HUD death', () => {
   const [death] = attachRespawnEvidence(
     [{ time: 95, end: 101, confidence: 0.8, evidence: { detector: 'self-hud-cross' } }],
@@ -591,10 +744,10 @@ test('projects a video enemy candidate as an explicitly uncertain map prediction
 
 test('identifies an exact result weapon template when a local catalog is installed', { skip: !weaponCatalogMetadata.available }, () => {
   assert.ok(weaponCatalogMetadata.count >= 170);
-  const reference = weaponReferenceFeature('Charger_Light_00');
+  const reference = weaponReferenceFeature('wikiwiki:14式竹筒銃・甲');
   const result = classifyWeaponFeature(reference);
   assert.equal(result.status, 'identified');
-  assert.equal(result.id, 'Charger_Light_00');
+  assert.equal(result.id, 'wikiwiki:14式竹筒銃・甲');
   assert.equal(result.name, '14式竹筒銃・甲');
   assert.equal(result.distance, 0);
 });

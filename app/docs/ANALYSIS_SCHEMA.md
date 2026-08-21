@@ -33,16 +33,22 @@
   - `patterns[].reviewFocus`: 映像を見返す際の具体的な注目点
   - `patterns[].clips[]`: パターン動画で順番に再生する根拠範囲。動画を切り抜かず、デス時刻に対する `startOffset` / `endOffset` として保持する
   - 1パターン内で同じデスに複数範囲を持てる。各 `deathIds` には最低1範囲が必要
+- `deathAnalysisState`: AI分析の段階公開と再開に使う状態
+  - `status`: `idle`, `sequences`, `report`, `complete`, `error`, `interrupted`
+  - `phase`: `sequences` はデス一覧生成、`report` は俯瞰レポート生成
+  - `completedDeaths` / `totalDeaths`: デス一覧生成の進捗
+  - `error` / `guidance` / `retryable`: Codexの返答に基づく原因、対処方法、再開可否
 - `series[].motion`: 連続フレームの画面変化量
 - `series[].hud`: HUDらしさのスコア
 - `gameFlow.deaths.self`: 自分のデス開始秒と、次に生存表示を確認するまでの秒数
   - 上部HUDの本人ブキ枠と、右下の「復活まであとX秒」UIの初出時刻をデスごとに照合
   - `events[].evidence.timing` に `hudDetectedAt`、`respawnUiDetectedAt`、実測差の `respawnUiDelay` を保存
+- `playerStats`: リザルト画面から取得した本人の `kills` / `deaths`。読み取れない値は `null`
   - 上部HUDを確認できない区間では、復活UIの初出を `respawn-ui-fallback` としてデス時刻に採用
   - 復活UIは通常色・エナジースタンド色を区別して検出
 - `playerIdentity`: リザルトの自分行とブキ画像をHUDへ照合した結果
   - `hudSlot`: 自軍HUDの左から何番目か（0始まり）
-  - `method`: 同じ試合のリザルトを使った `result-row-weapon-match`、または直前試合から引き継いだ `carried-result-weapon-match`
+  - `method`: 同じ試合の個人リザルトを使った `personal-result-weapon-match`、または同録画内の個人リザルトから引き継いだ `carried-personal-result-weapon-match`
   - `confidence`: リザルトのブキ形状とHUDアイコンの照合確度
   - `weapon`: リザルトの自分行にあるブキ画像を173種の照合辞書へ比較した結果
     - `status`: その試合のリザルトから直接識別した `identified-from-result-icon`、録画内の一致で補強した `confirmed-by-recording-consistency`、前試合から引き継いだ `inferred-from-previous-result`、または画面へ出さない `candidate-only`
@@ -61,8 +67,8 @@
   - `source`: その秒を直接読めた `observed`、または直近観測を最大5秒保持した `held`
   - `confidence`: HUDの観測継続性から算出した0〜1の確度
 - `gameFlow.gameCounts[]`: 0.5秒間隔のゲームカウント観測時系列。瞬間的な大量得点は未観測の中間値を補間せず、その観測時点で反映する
-  - `teamCount` / `enemyCount`: 画面上部から読んだ自軍・相手カウント
-  - `teamPenalty` / `enemyPenalty`: カウント下の `+N` から読んだ自軍・相手ペナルティ。非表示時は0
+  - `teamCount` / `enemyCount`: エリア・アサリではイカランプ直下の固定スコアカード、ヤグラ・ホコでは進行線上を移動する丸いマーカーから読んだ自軍・相手カウント
+  - `teamPenalty` / `enemyPenalty`: エリア・アサリでカウント下の `+N` から読んだ自軍・相手ペナルティ。非表示時、および数値ペナルティ表示のないヤグラ・ホコでは0
   - `teamSource` / `enemySource`: カウントを直接観測した `observed`、短時間保持した `held`、または補間した `inferred`
   - `teamPenaltySource` / `enemyPenaltySource`: ペナルティの同じ観測区分
 - `stageMap`: 映像内で実際に開かれたマップ画面
@@ -112,4 +118,23 @@
   - 相手インクを人物と誤認する可能性があるため、敵の確定観測やステージ上の正確な座標には使わない
   - ブキを画像から特定できていない場合は `weapon: null` のまま保持し、名称を作らない
 
-現在の解析JSONはバージョン26です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+- `weaponRoster`: GO後から最初のデス表示より前に、画面上部の味方4枠・相手4枠を2フレーム照合した編成
+  - `openingTimes`: 実際に照合した試合クリップ内の秒数
+  - `teamSlots` / `enemySlots`: 左から右の順番、候補名、信頼度、採用可否
+  - `allyWeapons`: 自分のブキを1枠除いた味方3人分
+  - `enemyWeapons`: 相手4人分
+  - 個人リザルトで確定した自分のブキが味方4枠に存在しない結果は保存しない
+  - 2フレームで一致しない枠や信頼度が基準未満の枠は名称を作らず、編成を部分取得として扱う
+
+現在の解析JSONはバージョン28です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+
+## 横断分析データ
+
+`../data/app/analytics/matches.json` は、動画解析JSONとは別に更新する横断分析用ストアです。粒度は1試合1レコードです。
+
+- `records[].automatic`: 試合解析から作った自動取得値。ステージ、ルール、勝敗、自分のブキ、デス数、試合時間、人数有利時間、カウント・ペナルティ、開始直後HUDのブキ編成を保持する
+- `records[].overrides`: 画面で修正した値。自動取得値を消さず、表示・集計時だけ優先する
+- `coverage`: ステージ、ルール、勝敗、自分のブキ、編成を取得できたかを項目別に示す
+- `source.kind`: 常に `video-analysis`
+
+横断分析ストアの更新は動画の分割・解析後に独立したバックグラウンド処理で行います。ブキ編成は解析時に確定済みの `weaponRoster` だけを取り込み、横断分析側で再推定しません。

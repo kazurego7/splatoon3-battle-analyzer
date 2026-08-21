@@ -45,6 +45,14 @@ assets/stage-maps/audit-*.json
 assets/stage-maps/duplicate_images.txt
 assets/stage-maps/map_urls.txt
 assets/stage-maps/README.txt
+assets/weapon-icons/images/*
+!assets/weapon-icons/images/.gitkeep
+assets/weapon-icons/reference-sheets/*
+!assets/weapon-icons/reference-sheets/.gitkeep
+assets/weapon-icons/manifest.json
+assets/rule-icons/images/*
+!assets/rule-icons/images/.gitkeep
+assets/rule-icons/manifest.json
 
 # Locally generated from third-party game data; never redistribute by default
 app/src/weapon-catalog.json

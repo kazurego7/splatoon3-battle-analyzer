@@ -28,8 +28,8 @@ test('returns no deaths when the result count is unavailable', () => {
   assert.deepEqual(reconcileDeathsWithResult([death(20)], null), []);
 });
 
-test('does not publish a partial death analysis when candidates are fewer than the result count', () => {
-  assert.deepEqual(reconcileDeathsWithResult([death(20, { respawn: true })], 2), []);
+test('publishes confirmed partial deaths when candidates are fewer than the result count', () => {
+  assert.deepEqual(reconcileDeathsWithResult([death(20, { respawn: true })], 2).map(item => item.time), [20]);
 });
 
 test('chooses the exact-count HUD slot with the most respawn confirmations', () => {

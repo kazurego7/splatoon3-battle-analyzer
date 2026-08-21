@@ -6,15 +6,36 @@ export function deathAnalysisEndpoint(analysisUrl) {
   return `${String(analysisUrl || '').replace(/[?#].*$/, '').replace(/\/$/, '')}/ai-death-sequence`;
 }
 
-export function deathAnalysisControlState({ analysis, deathCount = 0, pending = false, error = '' }) {
+export function matchAnalysisBadge({ ready = false, analysis = null } = {}) {
+  if (!ready) return { label: '処理中', className: '' };
+  const status = String(analysis?.deathAnalysisState?.status || '');
+  if (analysis?.deathAnalysis || status === 'complete') return { label: 'AI分析済み', className: 'ready ai-ready' };
+  if (status === 'sequences' || status === 'report') return { label: 'AI分析中', className: 'ai-running' };
+  return { label: '動画解析済み', className: 'video-ready' };
+}
+
+export function deathAnalysisControlState({ analysis, deathCount = 0, jobState = {}, localError = '' }) {
   const analyzed = Boolean(analysis);
+  const statusName = String(jobState?.status || (analyzed ? 'complete' : 'idle'));
+  const pending = statusName === 'sequences' || statusName === 'report';
+  const error = String(localError || jobState?.error || '');
+  const guidance = String(jobState?.guidance || '');
+  const reportPending = jobState?.phase === 'report' || statusName === 'report';
+  let status = '';
+  if (statusName === 'sequences') {
+    const completed = Number(jobState?.completedDeaths) || 0, total = Number(jobState?.totalDeaths) || deathCount;
+    status = `AIがデス一覧を生成しています${total ? `（${completed}/${total}件完了）` : ''}。完了後、そのままレポートを生成します…`;
+  } else if (statusName === 'report') status = 'デス一覧を反映しました。AIが俯瞰レポートを生成しています…';
+  else if (error || statusName === 'interrupted') status = [error, guidance].filter(Boolean).join(' ');
   return {
     showAnalyze: !analyzed && deathCount > 0,
     analyzeDisabled: pending || deathCount < 1,
-    analyzeLabel: pending ? '分析中…' : 'AI分析',
+    analyzeLabel: pending ? (reportPending ? 'レポート生成中…' : 'デス分析中…')
+      : error || statusName === 'interrupted' ? (reportPending ? 'レポート生成を再開する' : '分析を再開する')
+        : 'AI分析を実行する！',
     showReport: analyzed,
-    status: pending ? 'AIがデス前後の映像を比較しています。数分かかることがあります…' : String(error || ''),
-    statusIsError: !pending && Boolean(error),
+    status,
+    statusIsError: !pending && Boolean(error || statusName === 'interrupted'),
   };
 }
 

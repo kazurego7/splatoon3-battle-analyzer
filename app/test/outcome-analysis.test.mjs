@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeOutcomeFrame, consolidateOutcomeObservations } from '../src/outcome-analysis.mjs';
+import { analyzeOutcomeFrame, analyzeOutcomeLocally, consolidateOutcomeObservations } from '../src/outcome-analysis.mjs';
 
 const WIDTH = 960;
 const HEIGHT = 540;
@@ -44,4 +44,19 @@ test('requires repeated outcome announcement observations', () => {
   assert.equal(consolidateOutcomeObservations([win]), null);
   assert.equal(consolidateOutcomeObservations([win, win, lose]), null);
   assert.equal(consolidateOutcomeObservations([win, win, win, lose])?.value, 'win');
+});
+
+test('late victory announcements are scanned through the end of the match', async () => {
+  const calls = [];
+  const sampler = async (_source, start, end) => {
+    calls.push([start, end]);
+    if (end < 400) return [];
+    return [393, 394, 395].map(time => ({ value: 'win', time, confidence: 0.95, evidence: 'test' }));
+  };
+  const result = await analyzeOutcomeLocally({
+    source: 'recording.mp4', matchStart: 64, activeEnd: 336, matchEnd: 422.17, sampler,
+  });
+  assert.deepEqual(calls, [[301, 344], [344, 422.17]]);
+  assert.equal(result.value, 'win');
+  assert.equal(result.time, 329);
 });

@@ -2,15 +2,19 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Battle Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>録画ライブラリ | Splatoon Battle Review</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
+<body data-screen="recordings">
   <header class="app-header">
-    <button id="review-back-button" class="review-back-button" type="button" aria-label="分析一覧に戻る">← 分析一覧</button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1>Battle Review</h1></div></div>
-    <div class="header-actions"><span class="watch-path">data/raw を自動監視</span><button id="scan-button" type="button">今すぐ確認</button></div>
+    <button class="app-menu-button" type="button" data-navigation-toggle aria-label="メニューを開く"><span></span><span></span><span></span></button>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1 id="screen-title">録画ライブラリ</h1></div></div>
+    <div class="header-actions">
+      <span class="watch-path">data/raw を自動監視</span>
+      <button id="open-recordings-folder-button" type="button">録画フォルダを開く</button>
+      <span id="folder-open-status" class="folder-open-status" role="status" hidden></span>
+    </div>
   </header>
 
   <main class="app-shell">
@@ -36,6 +40,12 @@
           <span id="analysis-badge">実動画解析</span>
         </div>
 
+        <nav class="mobile-review-nav" aria-label="試合レビュー内の移動">
+          <button type="button" data-review-target="video-heading"><span>▶</span>映像</button>
+          <button type="button" data-review-target="advice-heading"><span>✦</span>デス</button>
+          <button type="button" data-review-target="map-heading"><span>⌖</span>マップ</button>
+        </nav>
+
         <div class="review-grid">
           <aside class="panel evidence-panel" aria-labelledby="advice-heading">
             <div class="panel-heading death-panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div></div>
@@ -43,7 +53,7 @@
               <h3 id="death-report-digest-heading">レポートダイジェスト</h3>
               <p id="death-report-digest">AIがデス前後の映像を比較し、この試合で繰り返した失敗パターンを1〜2文にまとめます。</p>
               <p id="death-ai-status" class="death-ai-status" hidden></p>
-              <div class="death-digest-actions"><button id="death-ai-button" type="button">AI分析</button><button id="death-report-button" type="button" hidden>俯瞰レポート ↗</button></div>
+              <div class="death-digest-actions"><button id="death-ai-button" type="button">AI分析を実行する！</button><button id="death-report-button" type="button" hidden>俯瞰レポート ↗</button></div>
             </section>
             <div class="death-list-label">確認するデス</div>
             <div id="event-list" class="event-list death-selector"></div>
@@ -56,11 +66,11 @@
             </div>
             <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数差 —</span></div>
             <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 220" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
+            <svg id="analysis-chart" viewBox="0 0 1000 250" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
               <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
-              <rect id="chart-hit" x="34" y="26" width="944" height="190"></rect>
+              <rect id="chart-hit" x="34" y="26" width="944" height="218"></rect>
             </svg>
-            <div class="chart-legend"><span><i class="count-team"></i>自軍カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>自軍ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
+            <div class="chart-legend"><span><i class="count-team"></i>味方カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>味方ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
           </section>
 
           <section class="panel map-panel" aria-labelledby="map-heading">
@@ -68,12 +78,12 @@
             <div class="map-shell">
               <img id="stage-map-image" alt="stage-maps素材のステージマップ" hidden>
               <div id="map-placeholder" class="map-placeholder">録画内のマップ画面を確認しています</div>
-              <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジションとブリーフィング"><g id="route-layer"></g><g id="entity-layer"></g><g id="player-layer"></g><g id="strong-position-layer"></g><g id="briefing-route-layer"></g></svg>
+              <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジション"><g id="route-layer"></g><g id="entity-layer"></g><g id="player-layer"></g><g id="strong-position-layer"></g></svg>
               <div id="map-clock" class="map-clock">00:00</div>
             </div>
-            <div class="map-legend"><span><i class="self"></i>自分</span><span><i class="ally"></i>味方</span><span><i class="enemy"></i>敵</span><span><i class="strong"></i>有利なポジション</span></div>
+            <div class="map-legend"><span><i class="self"></i>自分</span><span><i class="ally"></i>味方</span><span><i class="enemy"></i>相手</span><span><i class="strong"></i>有利なポジション</span></div>
             <div class="map-tools">
-              <div class="map-tool-buttons"><button id="strong-edit-button" type="button">有利なポジションを編集</button><button id="briefing-toggle-button" type="button">ブリーフィング</button></div>
+              <div class="map-tool-buttons"><button id="strong-edit-button" type="button">有利なポジションを編集</button></div>
               <span id="position-save-status"></span>
             </div>
           </section>
@@ -88,7 +98,7 @@
       <div class="map-editor-modal-layout">
         <div class="editor-map-shell">
           <img id="editor-stage-map-image" alt="編集対象のステージマップ">
-          <svg id="editor-map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジションとブリーフィングの編集マップ"><g id="editor-strong-position-layer"></g><g id="editor-briefing-route-layer"></g></svg>
+          <svg id="editor-map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジションの編集マップ"><g id="editor-strong-position-layer"></g></svg>
         </div>
         <div class="map-editor-sidebar">
           <div id="strong-edit-panel" class="map-editor-panel" hidden>
@@ -106,25 +116,12 @@
               <div id="strong-position-list" class="map-editor-list"></div>
             </section>
           </div>
-          <div id="briefing-panel" class="map-editor-panel" hidden>
-            <div class="editor-panel-heading editor-create-bar"><div><strong>ブリーフィング</strong><span>新しく追加するか、保存済みから選択</span></div><button id="briefing-new-button" type="button">＋ 新規作成</button></div>
-            <div class="editor-form-card">
-              <div class="editor-workspace-heading"><div><strong id="briefing-form-title">ブリーフィングを編集</strong><span id="briefing-form-context">場面と動き方をまとめる</span></div></div>
-              <label class="editor-field"><span>タイトル</span><input id="briefing-title-input" maxlength="100" placeholder="例：打開で右高台を取り返す"></label>
-              <label class="editor-field"><span>使う場面</span><textarea id="briefing-situation-input" rows="3" maxlength="500" placeholder="どういった場面で使うか"></textarea></label>
-              <label class="editor-field"><span>動き方</span><textarea id="briefing-movement-input" rows="4" maxlength="1000" placeholder="その場面でどのように動くべきか"></textarea></label>
-              <div class="briefing-editor-actions"><div class="briefing-route-actions"><button id="briefing-route-button" type="button">経路を指定</button><button id="briefing-undo-button" type="button">1つ戻す</button></div><div class="editor-footer-actions"><button id="briefing-delete-button" type="button">削除</button><button id="briefing-save-button" class="editor-primary-action" type="button">修正</button></div></div>
-            </div>
-            <section class="editor-library" aria-labelledby="briefing-library-title">
-              <div class="editor-panel-heading"><div><strong id="briefing-library-title">保存済みブリーフィング</strong><span>選択して編集</span></div><span id="briefing-count" class="editor-item-count">0件</span></div>
-              <div id="briefing-list" class="briefing-list" role="list" aria-label="ブリーフィング一覧"></div>
-            </section>
-          </div>
           <span id="modal-save-status"></span>
         </div>
       </div>
     </div>
   </dialog>
+  <script type="module" src="/navigation.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

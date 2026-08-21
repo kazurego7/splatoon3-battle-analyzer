@@ -5,29 +5,42 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
+    "start:tailscale": "node scripts/start-tailscale.mjs",
     "analyze": "node src/cli.mjs",
     "inspect": "node scripts/diagnostics/inspect-video.mjs",
     "inspect:deaths": "node scripts/diagnostics/inspect-deaths.mjs",
     "inspect:counts": "node scripts/diagnostics/inspect-player-counts.mjs",
+    "refresh:player-counts": "node scripts/diagnostics/refresh-player-counts.mjs",
+    "refresh:map-detection": "node scripts/diagnostics/refresh-map-detection.mjs",
     "inspect:identity": "node scripts/diagnostics/inspect-player-identity.mjs",
     "refresh:stage-map": "node scripts/diagnostics/refresh-stage-metadata.mjs",
+    "refresh:personal-results": "node scripts/diagnostics/refresh-personal-results.mjs",
     "inspect:game-count": "node scripts/experiments/game-count/inspect-frame.mjs",
+    "inspect:rule-count": "node scripts/diagnostics/inspect-rule-count-timeline.mjs",
     "train:game-count": "node scripts/experiments/game-count/train-model.mjs",
     "calibrate:game-count": "node scripts/experiments/game-count/calibrate-observations.mjs",
+    "calibrate:objective-count": "node scripts/experiments/game-count/calibrate-objective-observations.mjs",
     "calibrate:game-penalty": "node scripts/experiments/game-count/calibrate-penalties.mjs",
     "validate:game-penalty": "node scripts/experiments/game-count/validate-penalties.mjs",
     "validate:outcomes": "node scripts/experiments/validate-outcomes.mjs",
+    "validate:reviewed-metadata": "node scripts/experiments/validate-reviewed-metadata.mjs",
+    "validate:boundaries": "node scripts/experiments/validate-boundaries.mjs",
     "validate:stage-map": "node scripts/experiments/stage/validate-stage-analysis.mjs",
     "inspect:game-count-timeline": "node scripts/experiments/game-count/inspect-timeline.mjs",
     "sync:weapons": "node scripts/sync-weapon-catalog.mjs",
+    "sync:rules": "node scripts/sync-rule-icons.mjs",
+    "sync:icons": "npm run sync:weapons && npm run sync:rules",
     "check:public": "node scripts/diagnostics/check-public-release.mjs",
-    "check": "node --check src/server.mjs && node --check src/pipeline.mjs && node --check src/ffmpeg.mjs && node --check src/battle-analysis.mjs && node --check src/codex-death-analysis.mjs && node --check src/outcome-analysis.mjs && node --check src/result-analysis.mjs && node --check src/result-boundary.mjs && node --check src/player-identity.mjs && node --check src/weapon-analysis.mjs && node --check src/map-analysis.mjs && node --check src/stage-analysis.mjs && node --check src/perception-analysis.mjs && node --check src/game-count-vision.mjs && node --check src/respawn-vision.mjs && node --check src/analysis-overrides.mjs && node --check public/app.js && node --check public/outcome.js && node --check public/death-analysis-ui.js && node --check public/report.js && node --check public/report-player.js && node --check scripts/sync-weapon-catalog.mjs && node --check scripts/diagnostics/inspect-video.mjs && node --check scripts/diagnostics/inspect-deaths.mjs && node --check scripts/diagnostics/inspect-player-counts.mjs && node --check scripts/diagnostics/inspect-player-identity.mjs && node --check scripts/diagnostics/refresh-stage-metadata.mjs && node --check scripts/experiments/validate-outcomes.mjs && node --check scripts/experiments/game-count/inspect-frame.mjs && node --check scripts/experiments/game-count/train-model.mjs && node --check scripts/experiments/game-count/calibrate-observations.mjs && node --check scripts/experiments/game-count/calibrate-penalties.mjs && node --check scripts/experiments/game-count/validate-penalties.mjs && node --check scripts/experiments/game-count/inspect-timeline.mjs && node --check scripts/experiments/stage/validate-stage-analysis.mjs",
+    "check:analytics": "node --check src/match-analytics.mjs && node --check src/weapon-roster-analysis.mjs && node --check src/tailscale-access.mjs && node --check scripts/start-tailscale.mjs && node --check scripts/sync-rule-icons.mjs && node --check public/analytics-core.js && node --check public/analytics.js && node --check public/navigation.js && node --check public/search-core.js && node --check public/search.js && node --check public/player-stats-ui.js",
+    "precheck": "npm run check:analytics",
+    "check": "node --check src/server.mjs && node --check src/death-analysis-errors.mjs && node --check src/pipeline.mjs && node --check src/ffmpeg.mjs && node --check src/intro-boundary.mjs && node --check src/battle-analysis.mjs && node --check src/codex-death-analysis.mjs && node --check src/outcome-analysis.mjs && node --check src/result-analysis.mjs && node --check src/result-boundary.mjs && node --check src/personal-result-analysis.mjs && node --check src/player-identity.mjs && node --check src/weapon-analysis.mjs && node --check src/weapon-roster-analysis.mjs && node --check src/map-analysis.mjs && node --check src/stage-analysis.mjs && node --check src/perception-analysis.mjs && node --check src/game-count-vision.mjs && node --check src/respawn-vision.mjs && node --check src/analysis-overrides.mjs && node --check public/app.js && node --check public/outcome.js && node --check public/death-analysis-ui.js && node --check public/report.js && node --check public/report-player.js && node --check scripts/sync-weapon-catalog.mjs && node --check scripts/diagnostics/recover-state.mjs && node --check scripts/diagnostics/inspect-video.mjs && node --check scripts/diagnostics/inspect-deaths.mjs && node --check scripts/diagnostics/inspect-player-counts.mjs && node --check scripts/diagnostics/inspect-player-identity.mjs && node --check scripts/diagnostics/inspect-weapon-roster.mjs && node --check scripts/diagnostics/inspect-rule-count-frame.mjs && node --check scripts/diagnostics/inspect-rule-count-timeline.mjs && node --check scripts/diagnostics/refresh-player-counts.mjs && node --check scripts/diagnostics/refresh-map-detection.mjs && node --check scripts/diagnostics/refresh-stage-metadata.mjs && node --check scripts/diagnostics/refresh-personal-results.mjs && node --check scripts/experiments/validate-boundaries.mjs && node --check scripts/experiments/validate-outcomes.mjs && node --check scripts/experiments/validate-reviewed-metadata.mjs && node --check scripts/experiments/game-count/inspect-frame.mjs && node --check scripts/experiments/game-count/train-model.mjs && node --check scripts/experiments/game-count/calibrate-observations.mjs && node --check scripts/experiments/game-count/calibrate-objective-observations.mjs && node --check scripts/experiments/game-count/calibrate-penalties.mjs && node --check scripts/experiments/game-count/validate-penalties.mjs && node --check scripts/experiments/game-count/inspect-timeline.mjs && node --check scripts/experiments/stage/validate-stage-analysis.mjs",
     "test": "node --test"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@openai/codex": "0.147.0"
+    "@openai/codex": "0.147.0",
+    "sharp": "^0.35.3"
   }
 }

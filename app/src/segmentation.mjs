@@ -23,14 +23,22 @@ export function classifySamples(samples, interval) {
     const hud = sample.hudWhiteRatio >= 0.012 && sample.hudEdgeRatio >= Math.max(0.035, hudEdgeMedian * 0.9);
     const active = sample.difference >= Math.max(5.5, diffMedian * 0.55) && sample.saturation >= 0.18 && sample.brightness >= 28;
     const gameScore = (hud ? 0.62 : 0) + Math.min(0.25, sample.hudEdgeRatio * 2.2) + (active ? 0.28 : 0);
-    const ruleScore = sample.centerDarkRatio == null ? 0 : (
-      (sample.centerDarkRatio >= 0.18 && sample.centerDarkRatio <= 0.62 ? 0.42 : 0)
-      + (sample.centerWhiteRatio >= 0.03 && sample.centerWhiteRatio <= 0.14 ? 0.25 : 0)
-      + (sample.centerEdgeRatio >= 0.095 ? 0.25 : 0)
-      + (sample.saturation >= 0.18 ? 0.08 : 0)
-    );
+    const ruleScore = ruleIntroScore(sample);
     return { ...sample, hud, active, gameScore, gameplay: gameScore >= 0.7, ruleScore, ruleIntro: ruleScore >= 0.82, interval };
   });
+}
+
+export function ruleIntroScore(sample) {
+  if (sample.centerDarkRatio == null) return 0;
+  return (
+    // The rule card's black ink occupies a stable quarter of the center crop.
+    // Wider bounds also match the map overlay, player pose, logo, and XP cards.
+    (sample.centerDarkRatio >= 0.22 && sample.centerDarkRatio <= 0.315 ? 0.42 : 0)
+    // Some stage backgrounds leave slightly less white inside the crop.
+    + (sample.centerWhiteRatio >= 0.025 && sample.centerWhiteRatio <= 0.14 ? 0.25 : 0)
+    + (sample.centerEdgeRatio >= 0.095 ? 0.25 : 0)
+    + (sample.saturation >= 0.18 ? 0.08 : 0)
+  );
 }
 
 function density(flags, start, end) {
@@ -108,8 +116,8 @@ export function detectMatchSegments(classified, duration, interval) {
       const activeEnd = runCandidates.length ? Math.max(...runCandidates.map(run => run.activeEnd)) : Math.min(nextStart, start + 360);
       const end = index + 1 < starts.length
         ? Math.min(nextStart - 3, activeEnd + 70)
-        // Detailed results can appear close to a minute after gameplay ends.
-        // Keep the full result sequence, while bounding unrelated lobby footage.
+        // The personal result used for K/D and self-weapon validation can appear
+        // close to a minute after gameplay ends.
         : Math.min(duration, activeEnd + 90);
       return { activeStart: start, activeEnd, start, end: Math.max(start + 60, end), detection: 'rule-intro' };
     });
