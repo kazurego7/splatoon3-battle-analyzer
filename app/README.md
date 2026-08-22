@@ -22,6 +22,8 @@ npm run start:tailscale
 
 起動時に表示される `https://<このPC名>.<tailnet>.ts.net/` がリモート用URLです。Tailscale Serveがローカルの4310番へ安全に中継するため、WindowsのLAN側へポートを公開する必要はありません。アクセスする端末でも同じtailnetのTailscaleを有効にしてください。`http://<Tailscale IP>:4310` は使用しません。
 
+ローカル閲覧は分割済みの元動画をそのまま使います。TailscaleやLAN内の別端末から開いた場合だけ、このPC上で720pのネットワーク用動画を作成して再利用します。ブラウザがHEVC対応なら低帯域HEVC、非対応ならH.264を自動選択します。初回だけ動画上に準備中表示が出ますが、ローカル閲覧にはこの待ち時間はありません。
+
 ## 処理の流れ
 
 1. 録画を一覧へ登録する
@@ -81,6 +83,9 @@ npm run validate:outcomes -- "..\data\raw\<recording>.mp4" "..\data\work\<record
 npm run check
 npm test
 npm run check:public
+
+# 既存動画のネットワーク用H.264版をこのPCで事前作成（hevc または all も指定可能）
+npm run prepare:remote-videos -- h264
 ```
 
 ペナルティ教師ラベルは `config/game-penalty-calibration-observations.json`、未学習時刻の検証ラベルは `config/game-penalty-validation-observations.json` に保存します。各観測は `[試合内秒数, 自軍ペナルティ, 相手ペナルティ]` で、表示されていない側は `null` です。確認用の切り抜きとコンタクトシートは `../data/work/penalty-training-review/` と `../data/work/penalty-validation-review/` にあります。
@@ -108,6 +113,7 @@ npm run check:public
 
 - 入力録画: `../data/raw/`
 - 分割動画: `../data/matches/<recording-id>/`
+- ネットワーク用動画: `../data/remote-matches/<codec>/<recording-id>/`
 - 状態: `../data/app/state.json`
 - 解析JSON: `../data/app/analysis/<recording-id>/`
 - サムネイル: `../data/app/thumbnails/<recording-id>/`

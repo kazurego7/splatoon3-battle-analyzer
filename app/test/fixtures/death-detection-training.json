@@ -1,0 +1,14 @@
+{
+  "purpose": "evaluation-only",
+  "applyToApplicationData": false,
+  "timestampToleranceSeconds": 3,
+  "matches": [
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 4, "deaths": 2, "deathTimes": [158, 260] },
+    { "recordingId": "2026-08-09-15-29-11-22174d8e", "match": 7, "deaths": 6, "deathTimes": [50, 90, 174, 287, 299, 325] },
+    { "recordingId": "2026-08-11-14-36-58-7f6ab50b", "match": 1, "deaths": 5, "deathTimes": [43, 118, 145, 247, 284] },
+    { "recordingId": "2026-08-11-14-36-58-7f6ab50b", "match": 2, "kills": 6, "deaths": 6, "deathTimes": [64, 95, 132, 212, 290, 332] },
+    { "recordingId": "2026-08-11-14-36-58-7f6ab50b", "match": 3, "deaths": 8, "deathTimes": [53, 73, 92, 124, 157, 177, 278, 299] },
+    { "recordingId": "2026-08-11-14-36-58-7f6ab50b", "match": 4, "deaths": 2, "deathTimes": [54, 147] },
+    { "recordingId": "2026-08-11-14-36-58-7f6ab50b", "match": 5, "deaths": 6, "deathTimes": [40, 78, 123, 146, 184, 231] }
+  ]
+}

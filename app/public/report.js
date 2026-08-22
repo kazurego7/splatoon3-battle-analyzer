@@ -134,7 +134,8 @@ function createPatternPlayer(pattern, analysis, sourceUrl) {
 
 async function loadReport() {
   byId('report-title').textContent = reportTitle;
-  if (!validLocalUrl(analysisUrl, '/api/analysis/') || !validLocalUrl(videoUrl, '/media/matches/')) throw new Error('分析データのURLが不正です');
+  const validVideo = validLocalUrl(videoUrl, '/media/matches/') || validLocalUrl(videoUrl, '/media/remote-matches/');
+  if (!validLocalUrl(analysisUrl, '/api/analysis/') || !validVideo) throw new Error('分析データのURLが不正です');
   const response = await fetch(analysisUrl, { cache: 'no-store' });
   if (!response.ok) throw new Error('分析データを読み込めませんでした');
   const analysis = await response.json(), patterns = patternReportModels(analysis);

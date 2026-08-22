@@ -99,13 +99,18 @@ export function normalizeWeaponRosterAnalysis(value, entriesById, weapons) {
   });
 }
 
-async function prepareEntry({ match, index, clipRoot, frameDir, expectedSelfWeapon }) {
+async function prepareEntry({ match, index, clipRoot, frameDir, expectedSelfWeapon, timeOffset }) {
   const id = `match-${String(match.number || index + 1).padStart(2, '0')}`;
   const clipPath = path.join(clipRoot, match.fileName);
   const openingDuration = Math.min(match.duration || OPENING_SECONDS, OPENING_SECONDS);
   const hud = await sampleBattleHud(clipPath, openingDuration, { maxDuration: openingDuration });
-  const gameplayStart = detectGameplayStart(hud, { earliest: 3, gameplayEnd: openingDuration });
-  const times = openingRosterTimes(hud, { gameplayStart, gameplayEnd: openingDuration });
+  const gameplayStart = detectGameplayStart(hud, { earliest: 3, gameplayEnd: openingDuration, requireRoster: true });
+  const times = openingRosterTimes(hud, {
+    gameplayStart,
+    gameplayEnd: openingDuration,
+    allowTimerFallback: true,
+    candidateOffset: timeOffset,
+  });
   if (times.length < 2) return null;
   const imagePaths = [];
   const slotImagePaths = [];
@@ -164,7 +169,7 @@ ${weapons.map((item, index) => `${String(index + 1).padStart(3, '0')}=${item.typ
   return JSON.parse(await fs.readFile(outputPath, 'utf8'));
 }
 
-export async function analyzeRecordingWeaponRosters({ matches, clipRoot, workDir, expectedWeapons = new Map(), services = {} }) {
+export async function analyzeRecordingWeaponRosters({ matches, clipRoot, workDir, expectedWeapons = new Map(), force = false, timeOffset = 0, services = {} }) {
   if (!ANALYSIS_ENABLED || !matches.length || !weaponCatalogMetadata.hudAvailable) return new Map();
   const frameDir = path.join(workDir, 'weapon-rosters');
   await fs.mkdir(frameDir, { recursive: true });
@@ -174,6 +179,7 @@ export async function analyzeRecordingWeaponRosters({ matches, clipRoot, workDir
     clipRoot,
     frameDir,
     expectedSelfWeapon: expectedWeapons.get(`match-${String(match.number || index + 1).padStart(2, '0')}`) || null,
+    timeOffset,
   }))).filter(Boolean);
   if (!entries.length) return new Map();
   const entriesById = new Map(entries.map(entry => [entry.id, entry]));
@@ -189,7 +195,7 @@ export async function analyzeRecordingWeaponRosters({ matches, clipRoot, workDir
   try {
     const cached = JSON.parse(await fs.readFile(cachePath, 'utf8'));
     const normalized = normalizeWeaponRosterAnalysis(cached, entriesById, weapons);
-    if (cached.version === CACHE_VERSION && cached.cacheKey === cacheKey && normalized.length === entries.length) {
+    if (!force && cached.version === CACHE_VERSION && cached.cacheKey === cacheKey && normalized.length === entries.length) {
       return new Map(normalized.map(result => [result.id, result]));
     }
   } catch (error) {

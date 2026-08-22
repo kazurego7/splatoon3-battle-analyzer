@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseDeathCandidateSet, reconcileDeathsWithResult } from '../src/result-analysis.mjs';
+import { chooseDeathCandidateSet, detectResultScreen, reconcileDeathsWithResult } from '../src/result-analysis.mjs';
 
 function death(time, { respawn = false, confidence = 0.9 } = {}) {
   return {
@@ -39,4 +39,27 @@ test('chooses the exact-count HUD slot with the most respawn confirmations', () 
   ], 2, 0);
   assert.equal(selected.slot, 3);
   assert.equal(selected.respawnConfirmed, 2);
+});
+
+test('detects a personal result whose stage banner is mostly dark', () => {
+  const width = 960;
+  const height = 540;
+  const frame = new Uint8Array(width * height * 3).fill(100);
+  const paint = (left, top, regionWidth, regionHeight, colorAt) => {
+    for (let y = top; y < top + regionHeight; y += 1) {
+      for (let x = left; x < left + regionWidth; x += 1) {
+        const color = colorAt(x, y);
+        const at = (y * width + x) * 3;
+        frame[at] = color;
+        frame[at + 1] = color;
+        frame[at + 2] = color;
+      }
+    }
+  };
+  paint(390, 105, 530, 405, (x, y) => ((x >> 1) + (y >> 1)) % 5 ? 20 : 100);
+  paint(430, 370, 455, 120, (x, y) => ((x >> 1) + (y >> 1)) % 4 ? 20 : 230);
+  paint(390, 15, 535, 90, (x, y) => ((x >> 1) + (y >> 1)) % 8 ? 20 : 230);
+
+  const result = detectResultScreen(frame, 100);
+  assert.equal(result?.screenType, 'personal');
 });

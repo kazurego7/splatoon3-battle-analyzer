@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="theme-color" content="#08101b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Battle Review" />
     <title>試合検索 | Splatoon Battle Review</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./search.css" />
   </head>
@@ -16,12 +22,28 @@
 
     <main class="search-main">
       <section class="filter-workspace compact-filter-workspace" aria-label="試合の検索条件">
-        <div class="filter-heading"><div><span>基本検索</span><strong>項目を開いてアイコンを複数選択</strong></div><button id="reset-search" type="button">すべて解除</button></div>
-        <div class="filter-launchers">
-          <button type="button" class="filter-launcher" data-filter-open="stages"><i>01</i><span><strong>ステージ</strong><small id="stage-selection-summary">すべて</small></span><b id="stage-selection-count" hidden>0</b><span id="stage-selection-preview" class="selection-preview"></span><em>›</em></button>
-          <button type="button" class="filter-launcher" data-filter-open="rules"><i>02</i><span><strong>ルール</strong><small id="rule-selection-summary">すべて</small></span><b id="rule-selection-count" hidden>0</b><span id="rule-selection-preview" class="selection-preview"></span><em>›</em></button>
-          <button type="button" class="filter-launcher" data-filter-open="selfWeapons"><i>03</i><span><strong>自分のブキ</strong><small id="self-weapon-selection-summary">すべて</small></span><b id="self-weapon-selection-count" hidden>0</b><span id="self-weapon-selection-preview" class="selection-preview"></span><em>›</em></button>
-          <button type="button" class="filter-launcher" data-filter-open="opponentWeapons"><i>04</i><span><strong>相手のブキ</strong><small id="opponent-weapon-selection-summary">すべて</small></span><b id="opponent-weapon-selection-count" hidden>0</b><span id="opponent-weapon-selection-preview" class="selection-preview"></span><em>›</em></button>
+        <div class="filter-heading"><div><span>検索項目</span></div><button id="reset-search" type="button">すべて解除</button></div>
+        <div class="direct-filters">
+          <section class="direct-filter direct-stage-filter" data-filter-key="stages" aria-label="ステージを選択">
+            <header><strong>ステージ</strong><small>横にスクロールして1つ選択</small></header>
+            <div id="stage-options" class="icon-options stage-options direct-stage-options"></div>
+          </section>
+          <div class="direct-filter-pair">
+            <section class="direct-filter" data-filter-key="rules" aria-label="ルールを選択">
+              <header><strong>ルール</strong><small>1つ選択</small></header>
+              <div id="rule-options" class="icon-options rule-options direct-rule-options"></div>
+            </section>
+            <section class="direct-filter" data-filter-key="outcomes" aria-label="勝敗を選択">
+              <header><strong>勝敗</strong><small>1つ選択</small></header>
+              <div id="outcome-options" class="icon-options outcome-options direct-outcome-options"></div>
+            </section>
+          </div>
+        </div>
+        <div class="filter-launchers" aria-label="ブキと編成の検索項目">
+          <button type="button" class="filter-launcher" data-filter-open="selfWeapons"><span><strong>自分のブキ</strong><small id="self-weapon-selection-summary">すべて</small></span><b id="self-weapon-selection-count"></b><span id="self-weapon-selection-preview" class="selection-preview"></span><em>›</em></button>
+          <button type="button" class="filter-launcher" data-filter-open="opponentWeapons"><span><strong>相手のブキ</strong><small id="opponent-weapon-selection-summary">すべて</small></span><b id="opponent-weapon-selection-count"></b><span id="opponent-weapon-selection-preview" class="selection-preview"></span><em>›</em></button>
+          <button type="button" class="filter-launcher" data-filter-open="allyCompositions"><span><strong>味方の編成</strong><small id="ally-composition-selection-summary">すべて</small></span><b id="ally-composition-selection-count"></b><span id="ally-composition-selection-preview" class="selection-preview"></span><em>›</em></button>
+          <button type="button" class="filter-launcher" data-filter-open="enemyCompositions"><span><strong>敵の編成</strong><small id="enemy-composition-selection-summary">すべて</small></span><b id="enemy-composition-selection-count"></b><span id="enemy-composition-selection-preview" class="selection-preview"></span><em>›</em></button>
         </div>
         <div id="active-search-filters" class="active-search-filters" aria-live="polite"></div>
       </section>
@@ -35,16 +57,16 @@
 
     <dialog id="filter-dialog" class="filter-dialog">
       <div class="filter-dialog-card">
-        <header><div><p>SELECT FILTER</p><h2 id="filter-dialog-title">条件を選択</h2><span id="filter-dialog-description">アイコンを複数選択できます</span></div><button id="close-filter-dialog" type="button" aria-label="閉じる">×</button></header>
-        <label class="filter-option-search"><span>⌕</span><input id="filter-option-query" type="search" placeholder="名前で絞り込む" autocomplete="off" /></label>
-        <div id="weapon-type-tabs" class="weapon-type-tabs" role="tablist" aria-label="ブキ種" hidden></div>
-        <div id="stage-options" class="icon-options stage-options filter-option-panel" data-filter-panel="stages"></div>
-        <div id="rule-options" class="icon-options rule-options filter-option-panel" data-filter-panel="rules"></div>
+        <header><div><p>SELECT FILTER</p><h2 id="filter-dialog-title">条件を選択</h2><span id="filter-dialog-description">アイコンを選択できます</span></div><button id="close-filter-dialog" type="button" aria-label="閉じる">×</button></header>
+        <div id="weapon-type-tabs" class="weapon-type-tabs" role="tablist" aria-label="ブキ種で絞り込み"></div>
         <div id="self-weapon-options" class="icon-options weapon-options filter-option-panel" data-filter-panel="selfWeapons"></div>
         <div id="opponent-weapon-options" class="icon-options weapon-options filter-option-panel" data-filter-panel="opponentWeapons"></div>
+        <div id="ally-composition-options" class="icon-options weapon-options filter-option-panel" data-filter-panel="allyCompositions"></div>
+        <div id="enemy-composition-options" class="icon-options weapon-options filter-option-panel" data-filter-panel="enemyCompositions"></div>
         <footer><button id="clear-current-filter" type="button">この項目を解除</button><button id="apply-filter-dialog" type="button">選択を完了</button></footer>
       </div>
     </dialog>
+
     <script type="module" src="./navigation.js"></script>
     <script type="module" src="./search.js"></script>
   </body>

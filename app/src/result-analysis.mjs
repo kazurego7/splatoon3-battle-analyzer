@@ -35,12 +35,15 @@ export function detectResultScreen(frame, time) {
   const bannerDark = darkRatio(frame, 390, 15, 535, 90);
   const bannerBright = brightRatio(frame, 390, 15, 535, 90);
   const equipmentBright = brightRatio(frame, 430, 370, 455, 120);
+  // Some stages (for example spa/interior result backdrops) keep most of the
+  // stage banner dark. A small but stable bright image signal is sufficient
+  // when the result panel and equipment cards both match their structure.
   if (panelDark < 0.68 || panelDark > 0.84
-    || (bannerBright < 0.25 && bannerDark > 0.5)
+    || (bannerBright < 0.1 && bannerDark > 0.5)
     || equipmentBright < 0.12) return null;
   const confidence = Math.min(1,
     (panelDark - 0.68) / 0.12 * 0.35
-    + Math.max((bannerBright - 0.25) / 0.25, (0.5 - bannerDark) / 0.35) * 0.35
+    + Math.max((bannerBright - 0.1) / 0.25, (0.5 - bannerDark) / 0.35) * 0.35
     + (equipmentBright - 0.12) / 0.25 * 0.3);
   return {
     found: true,

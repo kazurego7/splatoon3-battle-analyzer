@@ -6,6 +6,8 @@ export const RULE_ICON_FILES = Object.freeze({
   ナワバリ: 'turf.png', エリア: 'zones.png', ヤグラ: 'tower.png', ホコ: 'rainmaker.png', アサリ: 'clams.png',
 });
 
+export const OUTCOME_LABELS = Object.freeze({ win: 'WIN', lose: 'LOSE' });
+
 export const WEAPON_TYPE_ORDER = Object.freeze([
   'シューター', 'ローラー', 'チャージャー', 'ブラスター', 'スロッシャー', 'スピナー',
   'フデ', 'マニューバー', 'シェルター', 'ストリンガー', 'ワイパー',
@@ -21,8 +23,11 @@ export function searchDimensions(records, weaponCatalog = []) {
   return {
     stages: unique(records.map(record => record.stage)),
     rules: unique([...records.map(record => record.rule), ...Object.keys(RULE_ICON_FILES)]),
+    outcomes: Object.keys(OUTCOME_LABELS),
     selfWeapons: unique([...records.map(recordSelfWeapon), ...weaponCatalog]),
     opponentWeapons: unique([...records.flatMap(record => record.enemyWeapons || []), ...weaponCatalog]),
+    allyCompositions: unique([...records.flatMap(record => record.allyWeapons || []), ...weaponCatalog]),
+    enemyCompositions: unique([...records.flatMap(record => record.enemyWeapons || []), ...weaponCatalog]),
   };
 }
 
@@ -61,12 +66,21 @@ function selectedWeaponMatch(selected, values) {
   return values.some(value => selectedNames.has(normalizedWeaponName(value)));
 }
 
+function selectedWeaponCompositionMatch(selected, values) {
+  if (!selected?.size) return true;
+  const available = new Set(values.map(normalizedWeaponName));
+  return [...selected].every(value => available.has(normalizedWeaponName(value)));
+}
+
 export function filterMatchRecords(records, selections = {}) {
   return [...records].filter(record => (
     selectedMatch(selections.stages, [record.stage])
     && selectedMatch(selections.rules, [record.rule])
+    && selectedMatch(selections.outcomes, [record.outcome])
     && selectedWeaponMatch(selections.selfWeapons, [recordSelfWeapon(record)])
     && selectedWeaponMatch(selections.opponentWeapons, record.enemyWeapons || [])
+    && selectedWeaponCompositionMatch(selections.allyCompositions, record.allyWeapons || [])
+    && selectedWeaponCompositionMatch(selections.enemyCompositions, record.enemyWeapons || [])
   )).sort((left, right) => String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')));
 }
 

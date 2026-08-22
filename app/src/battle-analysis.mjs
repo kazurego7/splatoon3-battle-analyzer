@@ -36,13 +36,22 @@ function isTimerVisible(sample) {
     && sample.timer.edgeRatio >= 0.035;
 }
 
-export function detectGameplayStart(samples, { earliest = 10, gameplayEnd = Infinity, required = 4 } = {}) {
+const ROSTER_ICON_MIN_SATURATED_RATIO = 0.3;
+
+export function isWeaponRosterVisible(sample) {
+  const icons = [...(sample?.team || []), ...(sample?.enemy || [])];
+  return isTimerVisible(sample)
+    && icons.length === 8
+    && icons.filter(icon => Number(icon?.saturatedRatio) >= ROSTER_ICON_MIN_SATURATED_RATIO).length >= 7;
+}
+
+export function detectGameplayStart(samples, { earliest = 10, gameplayEnd = Infinity, required = 4, requireRoster = false } = {}) {
   let consecutive = 0;
   for (let index = 0; index < (samples || []).length; index += 1) {
     const sample = samples[index];
     if (sample.time > gameplayEnd) break;
     if (sample.time < earliest) continue;
-    consecutive = isTimerVisible(sample) ? consecutive + 1 : 0;
+    consecutive = (requireRoster ? isWeaponRosterVisible(sample) : isTimerVisible(sample)) ? consecutive + 1 : 0;
     if (consecutive >= required) {
       const first = samples[index - required + 1];
       return first.time;
@@ -52,8 +61,7 @@ export function detectGameplayStart(samples, { earliest = 10, gameplayEnd = Infi
 }
 
 function allPlayersAlive(sample) {
-  return isTimerVisible(sample)
-    && [...(sample.team || []), ...(sample.enemy || [])].length === 8
+  return isWeaponRosterVisible(sample)
     && [...sample.team, ...sample.enemy].every(icon => !isDeadPlayerIcon(icon));
 }
 
@@ -62,6 +70,8 @@ export function openingRosterTimes(samples, {
   gameplayEnd = Infinity,
   maximum = 2,
   minimumGap = 1.5,
+  allowTimerFallback = false,
+  candidateOffset = 0,
 } = {}) {
   const source = Array.isArray(samples) ? samples : [];
   const firstDeath = source.find(sample => sample.time >= gameplayStart && isTimerVisible(sample)
@@ -74,9 +84,21 @@ export function openingRosterTimes(samples, {
     if (![source[index - 1], sample, source[index + 1]].every(allPlayersAlive)) continue;
     if (times.length && sample.time - times.at(-1) < minimumGap) continue;
     times.push(sample.time);
-    if (times.length >= maximum) break;
+    if (times.length >= maximum + candidateOffset) break;
   }
-  return times;
+  if (times.length < maximum + candidateOffset && allowTimerFallback) {
+    const fallbackLatest = Math.min(gameplayEnd, gameplayStart + 6);
+    times.length = 0;
+    for (let index = 1; index < source.length - 1; index += 1) {
+      const sample = source[index];
+      if (sample.time < gameplayStart + 0.75 || sample.time >= fallbackLatest) continue;
+      if (![source[index - 1], sample, source[index + 1]].every(isWeaponRosterVisible)) continue;
+      if (times.length && sample.time - times.at(-1) < minimumGap) continue;
+      times.push(sample.time);
+      if (times.length >= maximum + candidateOffset) break;
+    }
+  }
+  return times.slice(candidateOffset, candidateOffset + maximum);
 }
 
 function rawPlayerState(sample) {

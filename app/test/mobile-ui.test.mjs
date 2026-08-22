@@ -18,6 +18,12 @@ test('主要画面が共通ハンバーガーナビゲーションと画面名�
   assert.match(analytics, /viewport-fit=cover/);
   assert.match(search, /viewport-fit=cover/);
   assert.match(index, /class="mobile-review-nav"/);
+  for (const id of ['result-heading', 'result-outcome', 'result-stage', 'result-rule', 'result-kd', 'result-allies', 'result-enemies']) {
+    assert.match(index, new RegExp(`id="${id}"`));
+  }
+  assert.match(index, /id="screen-context"/);
+  assert.doesNotMatch(index, /id="result-specials"|id="result-duration"/);
+  assert.doesNotMatch(index, /video-heading-meta|video-heading-chip/);
   assert.match(analytics, /id="dashboard-grid"/);
   assert.match(analytics, /id="dashboard-select"/);
   assert.match(analytics, /id="toggle-dashboard-edit"/);
@@ -38,19 +44,51 @@ test('主要画面が共通ハンバーガーナビゲーションと画面名�
   assert.match(navigation, /録画ライブラリ/);
   assert.match(navigation, /試合検索/);
   assert.match(navigation, /分析ダッシュボード/);
-  for (const id of ['stage-options', 'rule-options', 'self-weapon-options', 'opponent-weapon-options']) {
+  for (const id of ['stage-options', 'rule-options', 'outcome-options', 'self-weapon-options', 'opponent-weapon-options', 'ally-composition-options', 'enemy-composition-options']) {
     assert.match(search, new RegExp(`id="${id}"`));
   }
   assert.match(searchScript, /setAttribute\('aria-pressed'/);
   assert.match(searchScript, /filterMatchRecords\(state\.records, state\.selections\)/);
   assert.match(search, /id="filter-dialog"/);
-  assert.match(search, /data-filter-open="stages"/);
+  assert.match(search, /data-filter-open="selfWeapons"/);
+  assert.match(search, /data-filter-open="opponentWeapons"/);
+  assert.match(search, /data-filter-open="allyCompositions"/);
+  assert.match(search, /data-filter-open="enemyCompositions"/);
+  assert.doesNotMatch(search, /id="filter-option-query"/);
+  assert.match(search, /id="weapon-type-tabs"/);
+  assert.match(search, /class="direct-filter direct-stage-filter"/);
+  assert.match(search, /class="icon-options stage-options direct-stage-options"/);
+  assert.match(search, /<span>検索項目<\/span>/);
+  assert.doesNotMatch(search, /ステージ・ルール・勝敗は直接選択/);
+  assert.doesNotMatch(search, /data-filter-open="(?:stages|rules|outcomes)"/);
+  assert.doesNotMatch(search, /<i>0[1-7]<\/i>/);
+  assert.doesNotMatch(search, /（(?:OR|AND)）/);
   assert.doesNotMatch(search, /search-intro/);
   assert.match(searchScript, /showModal\(\)/);
-  assert.match(search, /id="weapon-type-tabs"/);
   assert.match(searchScript, /renderWeaponTypeTabs/);
-  assert.match(searchScript, /dataset\.weaponType/);
-  assert.match(searchScript, /weaponMini\(self, true\)/);
+  assert.match(searchScript, /weaponTypeForName/);
+  assert.match(searchScript, /const COMPOSITION_LIMIT = 4/);
+  assert.match(searchScript, /selected\.size >= COMPOSITION_LIMIT/);
+  assert.match(searchScript, /option\.disabled = isComposition/);
+  assert.match(searchScript, /rosterRow\('味方', record\.allyWeapons, self\)/);
+  assert.match(searchScript, /stats\.append\(outcome, node\('span'/);
+  assert.doesNotMatch(searchScript, /media\.append\(outcome\)/);
+  assert.match(searchScript, /weapons\.map\(weapon => weaponMini\(weapon\)\)/);
+  assert.match(searchScript, /if \(filter\.single\)/);
+  assert.match(searchScript, /const cancel = selected\.has\(value\)/);
+  assert.match(searchScript, /function syncFilterSelection\(filter\)/);
+  assert.match(searchScript, /syncFilterSelection\(filter\)/);
+  assert.match(searchScript, /const resultCardCache = new Map\(\)/);
+  assert.match(searchScript, /records\.map\(cachedResultCard\)/);
+  assert.match(searchScript, /const RULE_ORDER = \['ナワバリ', 'エリア', 'ヤグラ', 'ホコ', 'アサリ'\]/);
+  assert.match(searchScript, /enableHorizontalWheelScroll\(byId\('stage-options'\)\)/);
+  assert.match(searchScript, /requestIdleCallback/);
+  assert.ok(
+    searchScript.indexOf("fetch('/api/analytics',") < searchScript.indexOf("fetch('/api/analytics/weapons',"),
+    'ブキ画像カタログは試合データの初期表示後に読み込む',
+  );
+  assert.doesNotMatch(searchScript, /direct-all-option/);
+  assert.doesNotMatch(searchScript, /`試合 \$\{matchLabel\}`/);
   assert.doesNotMatch(searchScript, /slice\(0, 2\)/);
   assert.doesNotMatch(analytics, /質問/);
   assert.match(analytics, /グラフ・表を追加/);
@@ -74,6 +112,12 @@ test('主要画面が共通ハンバーガーナビゲーションと画面名�
   assert.doesNotMatch(appScript, /reviewBackButton|backToAnalysisList/);
   assert.match(appScript, /history\.pushState\(\{review:true\}/);
   assert.match(appScript, /addEventListener\('popstate'/);
+  assert.match(appScript, /function renderMatchResult\(\)/);
+  assert.match(appScript, /loadReviewWeaponIcons/);
+  assert.match(appScript, /elements\.screenTitle\.textContent/);
+  assert.match(appScript, /elements\.screenTitle\.textContent=active\?'試合レビュー':'録画ライブラリ'/);
+  assert.doesNotMatch(appScript, /resultSpecials|resultDuration/);
+  assert.doesNotMatch(appScript, /videoHeadingMeta|動画：試合|ブキ：/);
   for (const page of [index, analytics, search]) assert.match(page, /class="brand"/);
 });
 
@@ -85,7 +129,15 @@ test('ダッシュボードはスマホで1列になり、検索画面は縦ス�
   ]);
   assert.match(styles, /@media \(max-width:700px\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /\.app-header \{ position:sticky; top:0; z-index:80; height:56px; min-height:56px;/);
+  assert.match(styles, /\.mobile-review-nav \{ position:sticky;[^}]*top:56px;/);
   assert.match(styles, /\.is-review \.video-panel \{ order:1/);
+  assert.match(styles, /\.result-map-panel \{ display:grid/);
+  assert.match(styles, /\.result-weapon\.is-self/);
+  assert.match(styles, /\.result-weapon-list \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.doesNotMatch(styles, /\.result-weapon-list \{ grid-template-columns:1fr; \}/);
+  assert.match(styles, /grid-template-columns:repeat\(4,1fr\)/);
+  assert.doesNotMatch(styles, /\.video-heading-chip/);
   assert.match(analyticsStyles, /@media \(max-width:860px\)/);
   assert.match(analyticsStyles, /grid-template-rows:70px minmax\(0,1fr\)/);
   assert.match(analyticsStyles, /\.dashboard-header .*grid-column:1\/-1/);
@@ -97,8 +149,11 @@ test('ダッシュボードはスマホで1列になり、検索画面は縦ス�
   assert.match(analyticsStyles, /env\(safe-area-inset-bottom\)/);
   assert.match(searchStyles, /\.icon-option\[aria-pressed="true"\]/);
   assert.match(searchStyles, /body\.search-page.*overflow-y:auto!important/);
-  assert.match(searchStyles, /\.filter-dialog/);
-  assert.match(searchStyles, /\.filter-launchers/);
-  assert.match(searchStyles, /\.weapon-type-tabs/);
+  assert.match(searchStyles, /\.weapon-mini \.option-image \{ width:36px; height:36px;/);
+  assert.match(searchStyles, /\.weapon-mini\.is-self \.option-image/);
+  assert.doesNotMatch(searchStyles, /\.weapon-mini>span:last-child/);
+  assert.match(searchStyles, /\.direct-stage-options \.option-label \{ font-size:11px; \}/);
+  assert.match(searchStyles, /\.direct-rule-options \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
+  assert.match(searchStyles, /\.direct-rule-options \.option-label \{ font-size:12px; \}/);
   assert.match(searchStyles, /env\(safe-area-inset-bottom\)/);
 });

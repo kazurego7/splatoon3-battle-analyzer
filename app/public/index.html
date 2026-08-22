@@ -2,14 +2,21 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#08101b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Battle Review">
   <title>録画ライブラリ | Splatoon Battle Review</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=3">
 </head>
 <body data-screen="recordings">
   <header class="app-header">
     <button class="app-menu-button" type="button" data-navigation-toggle aria-label="メニューを開く"><span></span><span></span><span></span></button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><h1 id="screen-title">録画ライブラリ</h1></div></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><div class="brand-title-row"><h1 id="screen-title">録画ライブラリ</h1><span id="screen-context" hidden></span></div></div>
     <div class="header-actions">
       <span class="watch-path">data/raw を自動監視</span>
       <button id="open-recordings-folder-button" type="button">録画フォルダを開く</button>
@@ -41,52 +48,74 @@
         </div>
 
         <nav class="mobile-review-nav" aria-label="試合レビュー内の移動">
-          <button type="button" data-review-target="video-heading"><span>▶</span>映像</button>
-          <button type="button" data-review-target="advice-heading"><span>✦</span>デス</button>
-          <button type="button" data-review-target="map-heading"><span>⌖</span>マップ</button>
+          <button type="button" data-review-target="video-heading" data-review-tab="video" aria-selected="true"><span>▶</span>映像</button>
+          <button type="button" data-review-target="result-heading" data-review-tab="result" aria-selected="false"><span>▦</span>リザルト</button>
+          <button type="button" data-review-target="advice-heading" data-review-tab="death" aria-selected="false"><span>◈</span>分析</button>
+          <button type="button" data-review-target="map-heading" data-review-tab="map" aria-selected="false"><span>⌖</span>マップ</button>
         </nav>
 
         <div class="review-grid">
+          <section class="panel result-panel result-map-panel" aria-labelledby="result-heading">
+              <div class="panel-heading result-panel-heading"><div><p>MATCH RESULT</p><h2 id="result-heading">試合リザルト</h2></div><span id="map-source-status" hidden></span></div>
+              <div class="result-overview">
+                <div class="result-summary"><div class="result-stage-rule"><strong id="result-stage">ステージ未取得</strong><span id="result-rule">ルール未取得</span></div><strong id="result-outcome" class="result-outcome">—</strong><div class="result-kd"><span>K/D</span><strong id="result-kd">—</strong></div></div>
+                <div class="result-rosters"><div><strong>味方</strong><div id="result-allies" class="result-weapon-list"></div></div><div><strong>相手</strong><div id="result-enemies" class="result-weapon-list"></div></div></div>
+              </div>
+            <div class="panel-heading mobile-map-heading"><div><p>STAGE MAP</p><h2>ステージマップ</h2></div></div>
+            <div id="map-heading" class="map-shell" aria-label="ステージマップ">
+              <img id="stage-map-image" alt="stage-maps素材のステージマップ" hidden>
+              <div id="map-placeholder" class="map-placeholder">ステージマップを読み込んでいます</div>
+              <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジション"><g id="strong-position-layer"></g></svg>
+            </div>
+            <div class="map-legend"><span><i class="strong"></i>有利なポジション</span></div>
+            <div class="map-tools">
+              <div class="map-tool-buttons"><button id="strong-edit-button" type="button">有利なポジションを編集</button></div>
+              <span id="position-save-status"></span>
+            </div>
+          </section>
+
+          <section class="panel video-panel" aria-labelledby="video-heading">
+            <div class="panel-heading video-panel-heading"><div><p>VIDEO REVIEW</p><h2 id="video-heading">バトル映像</h2></div><div class="video-heading-actions"><button id="mobile-death-list-button" class="mobile-death-list-button video-icon-button" type="button" aria-label="デス一覧を表示" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 6h13M7 12h13M7 18h13"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg></button><button id="video-expand-button" class="video-expand-button video-icon-button" type="button" aria-label="動画を全画面で表示" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button></div></div>
+            <div class="video-shell">
+              <video id="match-video" playsinline preload="metadata" tabindex="0" aria-label="試合動画。クリックまたはスペースキーで再生・一時停止"></video>
+              <div id="video-network-status" class="video-network-status" role="status" aria-live="polite" hidden><span class="video-network-spinner" aria-hidden="true"></span><span id="video-network-status-text"></span></div>
+              <button id="mobile-video-expand-button" class="mobile-video-expand-button video-expand-button video-icon-button" type="button" aria-label="動画を全画面で表示" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+            </div>
+            <div class="mobile-playback-controls" aria-label="動画操作">
+              <button id="mobile-skip-back-button" class="video-icon-button" type="button" aria-label="10秒戻る"><svg aria-hidden="true" viewBox="0 0 24 24"><path class="icon-fill" d="M11 6 4 12l7 6V6Zm9 0-7 6 7 6V6Z"/></svg></button>
+              <button id="mobile-playback-button" class="video-icon-button" type="button" aria-label="再生" data-playing="false"><svg class="icon-play" aria-hidden="true" viewBox="0 0 24 24"><path class="icon-fill" d="m7 4 13 8L7 20V4Z"/></svg><svg class="icon-pause" aria-hidden="true" viewBox="0 0 24 24"><path class="icon-fill" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+              <button id="mobile-skip-forward-button" class="video-icon-button" type="button" aria-label="10秒進む"><svg aria-hidden="true" viewBox="0 0 24 24"><path class="icon-fill" d="m13 6 7 6-7 6V6ZM4 6l7 6-7 6V6Z"/></svg></button>
+            </div>
+            <div class="expanded-bottom-hotspot" aria-hidden="true"></div>
+            <div id="video-review-controls" class="video-review-controls">
+              <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span></div>
+              <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
+              <svg id="analysis-chart" viewBox="0 0 1000 250" preserveAspectRatio="xMidYMid meet" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
+                <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
+                <rect id="chart-hit" x="34" y="26" width="944" height="218"></rect>
+              </svg>
+              <div class="chart-legend"><span><i class="count-team"></i>味方カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>味方ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
+              <button id="video-collapse-button" class="video-collapse-button video-icon-button" type="button" aria-label="全画面表示を終了"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/></svg></button>
+            </div>
+            <div class="expanded-death-hotspot" aria-hidden="true"></div>
+            <aside class="expanded-death-panel" aria-label="デス一覧">
+              <div class="expanded-death-heading"><span>DEATH POINTS</span><strong>デス一覧</strong><button id="mobile-death-list-close-button" class="mobile-death-list-close-button video-icon-button" type="button" aria-label="デス一覧を閉じる"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+              <div id="expanded-death-list" class="event-list death-selector"></div>
+            </aside>
+          </section>
+
           <aside class="panel evidence-panel" aria-labelledby="advice-heading">
             <div class="panel-heading death-panel-heading"><div><p>DEATH REVIEW</p><h2 id="advice-heading">デス分析</h2></div></div>
+            <section id="mobile-analysis-report" class="mobile-analysis-report" aria-label="俯瞰レポート" hidden></section>
             <section class="death-report-digest" aria-labelledby="death-report-digest-heading">
-              <h3 id="death-report-digest-heading">レポートダイジェスト</h3>
-              <p id="death-report-digest">AIがデス前後の映像を比較し、この試合で繰り返した失敗パターンを1〜2文にまとめます。</p>
+              <div class="death-digest-heading-row"><h3 id="death-report-digest-heading">レポートダイジェスト</h3><button class="death-digest-help" type="button" aria-label="レポートダイジェストについて" aria-describedby="death-digest-help-tooltip">?</button><span id="death-digest-help-tooltip" class="death-digest-help-tooltip" role="tooltip">AIがデス前後の映像を比較し、この試合で繰り返した失敗パターンを1〜2文にまとめます。</span></div>
+              <p id="death-report-digest" hidden></p>
               <p id="death-ai-status" class="death-ai-status" hidden></p>
               <div class="death-digest-actions"><button id="death-ai-button" type="button">AI分析を実行する！</button><button id="death-report-button" type="button" hidden>俯瞰レポート ↗</button></div>
             </section>
             <div class="death-list-label">確認するデス</div>
             <div id="event-list" class="event-list death-selector"></div>
           </aside>
-
-          <section class="panel video-panel" aria-labelledby="video-heading">
-            <div class="panel-heading video-panel-heading"><div><p>VIDEO REVIEW</p><h2 id="video-heading"><span class="video-heading-main">バトル映像</span></h2></div><div id="video-heading-meta" class="video-heading-meta"></div></div>
-            <div class="video-shell">
-              <video id="match-video" playsinline preload="metadata" tabindex="0" aria-label="試合動画。クリックまたはスペースキーで再生・一時停止"></video>
-            </div>
-            <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span><span id="game-count-status">カウント —</span><span id="player-count-status">人数差 —</span></div>
-            <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
-            <svg id="analysis-chart" viewBox="0 0 1000 250" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
-              <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
-              <rect id="chart-hit" x="34" y="26" width="944" height="218"></rect>
-            </svg>
-            <div class="chart-legend"><span><i class="count-team"></i>味方カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>味方ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>
-          </section>
-
-          <section class="panel map-panel" aria-labelledby="map-heading">
-            <div class="panel-heading"><div><p>SPATIAL REVIEW</p><h2 id="map-heading">ステージマップ</h2></div><span id="map-source-status">マップを検出中</span></div>
-            <div class="map-shell">
-              <img id="stage-map-image" alt="stage-maps素材のステージマップ" hidden>
-              <div id="map-placeholder" class="map-placeholder">録画内のマップ画面を確認しています</div>
-              <svg id="map-overlay" viewBox="0 0 1000 1000" role="img" aria-label="有利なポジション"><g id="route-layer"></g><g id="entity-layer"></g><g id="player-layer"></g><g id="strong-position-layer"></g></svg>
-              <div id="map-clock" class="map-clock">00:00</div>
-            </div>
-            <div class="map-legend"><span><i class="self"></i>自分</span><span><i class="ally"></i>味方</span><span><i class="enemy"></i>相手</span><span><i class="strong"></i>有利なポジション</span></div>
-            <div class="map-tools">
-              <div class="map-tool-buttons"><button id="strong-edit-button" type="button">有利なポジションを編集</button></div>
-              <span id="position-save-status"></span>
-            </div>
-          </section>
         </div>
       </div>
     </section>
@@ -121,7 +150,12 @@
       </div>
     </div>
   </dialog>
-  <script type="module" src="/navigation.js"></script>
-  <script type="module" src="/app.js"></script>
+  <div id="video-expand-transition" class="video-expand-transition" role="status" aria-label="画面を横向きにして拡大表示します" aria-live="polite" aria-hidden="true">
+    <div class="video-expand-transition-card">
+      <svg class="video-expand-transition-phone" aria-hidden="true" viewBox="0 0 100 100"><rect class="video-expand-device" x="29" y="8" width="42" height="84" rx="7"/><rect class="video-expand-screen" x="33" y="16" width="34" height="66" rx="2"/><path class="video-expand-play" d="m46 41 15 9-15 9Z"/><path class="video-expand-home" d="M47 87h6"/></svg>
+    </div>
+  </div>
+  <script type="module" src="/navigation.js?v=3"></script>
+  <script type="module" src="/app.js?v=3"></script>
 </body>
 </html>

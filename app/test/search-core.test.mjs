@@ -3,30 +3,38 @@ import assert from 'node:assert/strict';
 import { filterMatchRecords, matchReviewUrl, recordSelfWeapon, ruleIconUrl, searchDimensions, stageIconUrl, weaponCatalogEntry, weaponTypeForName, weaponTypeTabs } from '../public/search-core.js';
 
 const records = [
-  { id: 'a', recordingId: 'rec 1', matchNumber: 2, recordedAt: '2026-08-20T12:00:00Z', stage: 'マサバ海峡大橋', rule: 'エリア', selfWeapon: 'ホクサイ', enemyWeapons: ['もみじシューター', 'ケルビン525'] },
-  { id: 'b', recordingId: 'rec-2', matchNumber: 1, recordedAt: '2026-08-19T12:00:00Z', stage: 'ゴンズイ地区', rule: 'ヤグラ', selfWeapon: { name: '14式竹筒銃・甲' }, enemyWeapons: ['エクスプロッシャー', 'プロモデラーRG'] },
-  { id: 'c', recordingId: 'rec-3', matchNumber: 3, recordedAt: '2026-08-18T12:00:00Z', stage: 'マサバ海峡大橋', rule: 'ホコ', selfWeapon: 'スペースシューターコラボ', enemyWeapons: ['ホクサイ'] },
+  { id: 'a', recordingId: 'rec 1', matchNumber: 2, recordedAt: '2026-08-20T12:00:00Z', stage: 'マサバ海峡大橋', rule: 'エリア', outcome: 'win', selfWeapon: 'ホクサイ', allyWeapons: ['スプラシューター', 'ホクサイ'], enemyWeapons: ['もみじシューター', 'ケルビン525'] },
+  { id: 'b', recordingId: 'rec-2', matchNumber: 1, recordedAt: '2026-08-19T12:00:00Z', stage: 'ゴンズイ地区', rule: 'ヤグラ', outcome: 'lose', selfWeapon: { name: '14式竹筒銃・甲' }, allyWeapons: ['ホクサイ', 'ケルビン525'], enemyWeapons: ['エクスプロッシャー', 'プロモデラーRG'] },
+  { id: 'c', recordingId: 'rec-3', matchNumber: 3, recordedAt: '2026-08-18T12:00:00Z', stage: 'マサバ海峡大橋', rule: 'ホコ', outcome: 'win', selfWeapon: 'スペースシューターコラボ', allyWeapons: ['スプラシューター', 'もみじシューター'], enemyWeapons: ['ホクサイ', 'ケルビン525'] },
 ];
 
 test('検索候補をカテゴリ別に重複なく抽出する', () => {
   assert.deepEqual(searchDimensions(records), {
     stages: ['ゴンズイ地区', 'マサバ海峡大橋'],
     rules: ['アサリ', 'エリア', 'ナワバリ', 'ホコ', 'ヤグラ'],
+    outcomes: ['win', 'lose'],
     selfWeapons: ['14式竹筒銃・甲', 'スペースシューターコラボ', 'ホクサイ'],
     opponentWeapons: ['エクスプロッシャー', 'ケルビン525', 'プロモデラーRG', 'ホクサイ', 'もみじシューター'],
+    allyCompositions: ['ケルビン525', 'スプラシューター', 'ホクサイ', 'もみじシューター'],
+    enemyCompositions: ['エクスプロッシャー', 'ケルビン525', 'プロモデラーRG', 'ホクサイ', 'もみじシューター'],
   });
   assert.equal(recordSelfWeapon(records[1]), '14式竹筒銃・甲');
   const withCatalog = searchDimensions(records, ['.52ガロン']);
   assert.equal(withCatalog.selfWeapons.includes('.52ガロン'), true);
   assert.equal(withCatalog.opponentWeapons.includes('.52ガロン'), true);
+  assert.equal(withCatalog.allyCompositions.includes('.52ガロン'), true);
+  assert.equal(withCatalog.enemyCompositions.includes('.52ガロン'), true);
 });
 
 test('同じカテゴリ内はOR、カテゴリ間はANDで複数選択を絞り込む', () => {
   const selections = {
     stages: new Set(['マサバ海峡大橋', 'ゴンズイ地区']),
     rules: new Set(['エリア', 'ホコ']),
+    outcomes: new Set(),
     selfWeapons: new Set(),
     opponentWeapons: new Set(['ホクサイ', 'ケルビン525']),
+    allyCompositions: new Set(),
+    enemyCompositions: new Set(),
   };
   assert.deepEqual(filterMatchRecords(records, selections).map(record => record.id), ['a', 'c']);
   selections.selfWeapons.add('スペースシューターコラボ');
@@ -35,6 +43,19 @@ test('同じカテゴリ内はOR、カテゴリ間はANDで複数選択を絞り
   selections.rules = new Set(['ヤグラ']);
   selections.opponentWeapons = new Set();
   assert.deepEqual(filterMatchRecords(records, selections).map(record => record.id), ['b']);
+});
+
+test('勝敗はOR、味方・敵の編成は選択したブキをすべて含むANDで絞り込む', () => {
+  const selections = {
+    stages: new Set(), rules: new Set(), selfWeapons: new Set(), opponentWeapons: new Set(),
+    outcomes: new Set(['win']), allyCompositions: new Set(['スプラシューター']), enemyCompositions: new Set(),
+  };
+  assert.deepEqual(filterMatchRecords(records, selections).map(record => record.id), ['a', 'c']);
+  selections.allyCompositions.add('ホクサイ');
+  assert.deepEqual(filterMatchRecords(records, selections).map(record => record.id), ['a']);
+  selections.outcomes.clear(); selections.allyCompositions.clear();
+  selections.enemyCompositions = new Set(['ホクサイ', 'ケルビン525']);
+  assert.deepEqual(filterMatchRecords(records, selections).map(record => record.id), ['c']);
 });
 
 test('検索結果から既存の試合レビューとステージ画像へ遷移できる', () => {

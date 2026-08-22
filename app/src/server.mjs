@@ -7,8 +7,10 @@ import { Pipeline } from './pipeline.mjs';
 import { Store } from './store.mjs';
 import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
 import { deathAnalysisFailure } from './death-analysis-errors.mjs';
-import { ANALYSIS_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
+import { parseByteRange } from './http-range.mjs';
+import { ANALYSIS_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, REMOTE_MATCH_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
 import { MatchAnalyticsService } from './match-analytics.mjs';
+import { prepareRemoteVideo, remoteVideoState } from './remote-video.mjs';
 import { weaponCatalogEntries, weaponCatalogMetadata } from './weapon-analysis.mjs';
 
 const PORT = Number(process.env.PORT || 4310);
@@ -25,6 +27,7 @@ const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
@@ -255,27 +258,41 @@ async function serveFile(request, response, file) {
   const stat = await fsp.stat(file);
   if (!stat.isFile()) throw new Error('Not a file');
   const type = mimeTypes[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const range = request.headers.range;
-  if (range) {
-    const match = range.match(/bytes=(\d*)-(\d*)/);
-    const start = match?.[1] ? Number(match[1]) : 0;
-    const end = match?.[2] ? Math.min(Number(match[2]), stat.size - 1) : stat.size - 1;
-    if (!match || start > end || start >= stat.size) {
-      response.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+  const range = parseByteRange(request.headers.range, stat.size);
+  const commonHeaders = {
+    'Content-Type': type,
+    'Accept-Ranges': 'bytes',
+    ...(type.startsWith('video/') ? { 'Cache-Control': 'private, max-age=3600', 'Content-Disposition': 'inline' } : {}),
+  };
+  if (range === false) {
+      response.writeHead(416, { ...commonHeaders, 'Content-Range': `bytes */${stat.size}`, 'Content-Length': 0 });
       response.end();
       return;
-    }
+  }
+  if (range) {
+    const { start, end } = range;
     response.writeHead(206, {
-      'Content-Type': type,
-      'Accept-Ranges': 'bytes',
+      ...commonHeaders,
       'Content-Range': `bytes ${start}-${end}/${stat.size}`,
       'Content-Length': end - start + 1,
     });
-    fs.createReadStream(file, { start, end }).pipe(response);
+    if (request.method === 'HEAD') response.end();
+    else fs.createReadStream(file, { start, end }).pipe(response);
     return;
   }
-  response.writeHead(200, { 'Content-Type': type, 'Content-Length': stat.size, 'Accept-Ranges': 'bytes' });
-  fs.createReadStream(file).pipe(response);
+  response.writeHead(200, { ...commonHeaders, 'Content-Length': stat.size });
+  if (request.method === 'HEAD') response.end();
+  else fs.createReadStream(file).pipe(response);
+}
+
+function remoteVideoMatch(recordingId, fileName) {
+  const recording = store.get(recordingId);
+  const match = recording?.matches?.find(item => item.fileName === fileName);
+  return recording && match ? { recording, match } : null;
+}
+
+function remoteVideoPublicUrl(codec, recordingId, fileName) {
+  return `/media/remote-matches/${codec}/${encodeURIComponent(recordingId)}/${encodeURIComponent(fileName)}`;
 }
 
 const server = http.createServer(async (request, response) => {
@@ -286,6 +303,26 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/recordings') {
       response.setHeader('Cache-Control', 'no-store');
       json(response, 200, store.list());
+      return;
+    }
+    if ((request.method === 'GET' || request.method === 'POST') && parts[0] === 'api' && parts[1] === 'remote-video' && parts[2] && parts[3]) {
+      const recordingId = decodeURIComponent(parts[2]);
+      const fileName = decodeURIComponent(parts[3]);
+      const codec = url.searchParams.get('codec') === 'hevc' ? 'hevc' : 'h264';
+      const found = remoteVideoMatch(recordingId, fileName);
+      if (!found) return json(response, 404, { error: '試合動画が見つかりません' });
+      const source = safeJoin(MATCH_ROOT, [recordingId, fileName]);
+      const output = safeJoin(REMOTE_MATCH_ROOT, [codec, recordingId, fileName]);
+      let state = await remoteVideoState(source, output, codec);
+      if (request.method === 'POST' && state.status !== 'ready' && state.status !== 'preparing') {
+        await prepareRemoteVideo(source, output, codec);
+        state = { status: 'preparing', codec };
+      }
+      response.setHeader('Cache-Control', 'no-store');
+      json(response, state.status === 'error' ? 500 : 200, {
+        ...state,
+        url: state.status === 'ready' ? remoteVideoPublicUrl(codec, recordingId, fileName) : null,
+      });
       return;
     }
     if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'recordings' && parts[3] === 'retry') {
@@ -410,11 +447,24 @@ const server = http.createServer(async (request, response) => {
       await serveFile(request, response, safeJoin(ANALYSIS_ROOT, parts.slice(2)));
       return;
     }
-    if (request.method === 'GET' && parts[0] === 'media' && parts[1] === 'matches') {
+    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'matches') {
       await serveFile(request, response, safeJoin(MATCH_ROOT, parts.slice(2)));
       return;
     }
-    if (request.method === 'GET' && parts[0] === 'media' && parts[1] === 'thumbnails') {
+    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'remote-matches') {
+      const codec = parts[2] === 'hevc' ? 'hevc' : parts[2] === 'h264' ? 'h264' : null;
+      const recordingId = decodeURIComponent(parts[3] || '');
+      const fileName = decodeURIComponent(parts[4] || '');
+      if (!codec) return json(response, 404, { error: '動画形式が不正です' });
+      const found = remoteVideoMatch(recordingId, fileName);
+      if (!found) return json(response, 404, { error: '試合動画が見つかりません' });
+      const source = safeJoin(MATCH_ROOT, [recordingId, fileName]);
+      const output = safeJoin(REMOTE_MATCH_ROOT, [codec, recordingId, fileName]);
+      if ((await remoteVideoState(source, output, codec)).status !== 'ready') return json(response, 409, { error: 'ネットワーク用動画を準備中です' });
+      await serveFile(request, response, output);
+      return;
+    }
+    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'thumbnails') {
       await serveFile(request, response, safeJoin(THUMBNAIL_ROOT, parts.slice(2)));
       return;
     }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths, openingRosterTimes } from '../src/battle-analysis.mjs';
+import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths, isWeaponRosterVisible, openingRosterTimes } from '../src/battle-analysis.mjs';
 import { countUiProfileForRule, detectGameCounts, gameCountFrameRegionForRule, ruleHasVisiblePenalty, stabilizeGameCount, stabilizePenalty } from '../src/game-count-vision.mjs';
 import { analyzeMapCandidate, analyzeMapCloseButton, analyzeMapPanelConnections, analyzeMapStartPointButton, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame, stabilizeMapVisibility } from '../src/map-analysis.mjs';
 import { attachRespawnEvidence } from '../src/analysis-overrides.mjs';
@@ -80,7 +80,7 @@ test('describes each death with a how-it-happened title, situation, and cause', 
 });
 
 function battleHudSample(time, teamDead = 1, enemyDead = 0, timerVisible = true) {
-  const icon = dead => sample(time, dead ? 'cross' : 'unknown');
+  const icon = dead => sample(time, dead ? 'cross' : 'alive');
   return {
     time,
     timer: timerVisible
@@ -91,10 +91,53 @@ function battleHudSample(time, teamDead = 1, enemyDead = 0, timerVisible = true)
   };
 }
 
+test('背景をタイマーと誤認しても8枠の編成背景がなければ試合開始にしない', () => {
+  const falseOpening = Array.from({ length: 16 }, (_, index) => battleHudSample(index * 0.25, 0, 0, true));
+  for (const item of falseOpening) {
+    for (const icon of [...item.team, ...item.enemy]) icon.saturatedRatio = 0.12;
+  }
+  const realOpening = Array.from({ length: 8 }, (_, index) => battleHudSample(4 + index * 0.25, 0, 0, true));
+  const samples = [...falseOpening, ...realOpening];
+  assert.equal(isWeaponRosterVisible(falseOpening[0]), false);
+  assert.equal(isWeaponRosterVisible(realOpening[0]), true);
+  assert.equal(detectGameplayStart(samples, { earliest: 0, gameplayEnd: 6, requireRoster: true }), 4);
+});
+
 test('編成画像は試合開始後かつ最初のデスより前の全員生存フレームだけを選ぶ', () => {
   const samples = Array.from({ length: 25 }, (_, index) => battleHudSample(index * 0.5, 0, 0, true));
   for (const item of samples.filter(candidate => candidate.time >= 5)) item.team[0] = sample(item.time, 'cross');
   assert.deepEqual(openingRosterTimes(samples, { gameplayStart: 1, gameplayEnd: 12 }), [2, 3.5]);
+});
+
+test('生存アイコン判定が不安定でも開始直後のタイマー表示から編成画像を選べる', () => {
+  const samples = Array.from({ length: 25 }, (_, index) => battleHudSample(index * 0.5, 0, 0, true));
+  for (const item of samples) item.team[0] = sample(item.time, 'cross');
+  assert.deepEqual(openingRosterTimes(samples, {
+    gameplayStart: 1,
+    gameplayEnd: 12,
+    allowTimerFallback: true,
+  }), [2, 3.5]);
+});
+
+test('タイマーだけが見える背景フレームを編成画像のフォールバックに使わない', () => {
+  const samples = Array.from({ length: 25 }, (_, index) => battleHudSample(index * 0.5, 0, 0, true));
+  for (const item of samples.filter(candidate => candidate.time < 4)) {
+    for (const icon of [...item.team, ...item.enemy]) icon.saturatedRatio = 0.08;
+  }
+  assert.deepEqual(openingRosterTimes(samples, {
+    gameplayStart: 1,
+    gameplayEnd: 12,
+    allowTimerFallback: true,
+  }), [4.5, 6]);
+});
+
+test('編成再照合では開始直後の後続フレーム対を選べる', () => {
+  const samples = Array.from({ length: 25 }, (_, index) => battleHudSample(index * 0.5, 0, 0, true));
+  assert.deepEqual(openingRosterTimes(samples, {
+    gameplayStart: 1,
+    gameplayEnd: 12,
+    candidateOffset: 2,
+  }), [5, 6.5]);
 });
 
 test('detects player advantage, removes isolated flips, and holds through hidden HUD', () => {
@@ -651,13 +694,15 @@ test('attaches respawn countdown evidence to the matching HUD death', () => {
   assert.equal(death.confidence, 0.95);
 });
 
-test('uses the first respawn UI frame when the self HUD was hidden', () => {
+test('calibrates the death time from the first respawn UI frame when the self HUD was hidden', () => {
   const [death] = attachRespawnEvidence([], [
     { time: 42.25, end: 46, duration: 3.75, confidence: 0.94, type: 'death', title: '自分がデス', evidence: { detector: 'respawn-countdown-ui', variant: 'tacticooler' } },
   ]);
-  assert.equal(death.time, 42.25);
+  assert.equal(death.time, 39.75);
   assert.equal(death.evidence.timing.timestampSource, 'respawn-ui-fallback');
   assert.equal(death.evidence.timing.hudDetectedAt, null);
+  assert.equal(death.evidence.timing.respawnUiDetectedAt, 42.25);
+  assert.equal(death.evidence.timing.respawnUiOnsetOffset, 2.5);
 });
 
 test('uses earlier respawn evidence when the HUD cross appears after a map screen', () => {
@@ -665,9 +710,9 @@ test('uses earlier respawn evidence when the HUD cross appears after a map scree
     [{ time: 50, end: 56, confidence: 0.8, evidence: { detector: 'self-hud-cross' } }],
     [{ time: 48.5, end: 52, duration: 3.5, confidence: 0.94, type: 'death', title: '自分がデス', evidence: { detector: 'respawn-countdown-ui' } }],
   );
-  assert.equal(death.time, 48.5);
+  assert.equal(death.time, 46);
   assert.equal(death.evidence.timing.timestampSource, 'respawn-ui-fallback');
-  assert.equal(death.evidence.timing.respawnUiDelay, 0);
+  assert.equal(death.evidence.timing.respawnUiDelay, 2.5);
 });
 
 test('keeps one death when a hidden HUD appears up to ten seconds after the respawn UI', () => {
@@ -676,7 +721,7 @@ test('keeps one death when a hidden HUD appears up to ten seconds after the resp
     [{ time: 56.5, end: 60, duration: 3.5, confidence: 0.94, type: 'death', title: '自分がデス', evidence: { detector: 'respawn-countdown-ui' } }],
   );
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].time, 56.5);
+  assert.equal(merged[0].time, 54);
   assert.equal(merged[0].evidence.timing.hudDetectedAt, 65);
 });
 

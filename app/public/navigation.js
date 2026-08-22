@@ -1,4 +1,9 @@
 const screen = document.body.dataset.screen || '';
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1', '::1'].includes(location.hostname))) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+
 const items = [
   { id: 'recordings', href: './index.html', icon: '▣', label: '録画ライブラリ', description: '録画と試合を確認' },
   { id: 'search', href: './search.html', icon: '⌕', label: '試合検索', description: '条件から試合を探す' },

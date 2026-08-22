@@ -2,13 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, extractJpegCrop, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
+import { ensureFfmpeg, extractJpeg, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
 import { classifySamples, detectMatchSegments } from './segmentation.mjs';
 import { refineIntroBoundaries } from './intro-boundary.mjs';
 import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
 import { identifySelfHudSlot } from './player-identity.mjs';
 import { analyzeGameCountFrame, detectGameCounts, gameCountFrameRegionForRule, gameCountModelVersion } from './game-count-vision.mjs';
-import { analyzeMapCandidate, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectSpatialObservations, selectObservedMapFrame, stabilizeMapVisibility } from './map-analysis.mjs';
+import { analyzeMapCandidate, stabilizeMapVisibility } from './map-analysis.mjs';
 import { detectRespawnRuns, respawnModelVersion } from './respawn-vision.mjs';
 import { attachRespawnEvidence } from './analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from './perception-analysis.mjs';
@@ -16,7 +16,7 @@ import { weaponCatalogEntries, weaponCatalogMetadata } from './weapon-analysis.m
 import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
 import { chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-analysis.mjs';
 import { refineResultBoundaries, resultBoundaryModelVersion } from './result-boundary.mjs';
-import { analyzeRecordingStages } from './stage-analysis.mjs';
+import { analyzeRecordingStages, loadStageCatalog } from './stage-analysis.mjs';
 import { analyzeRecordingPersonalResults } from './personal-result-analysis.mjs';
 import { analyzeRecordingWeaponRosters } from './weapon-roster-analysis.mjs';
 import { analyzeOutcomeLocally, outcomeModelVersion } from './outcome-analysis.mjs';
@@ -365,6 +365,7 @@ export class Pipeline {
       console.warn(`Personal result analysis unavailable: ${error.message}`);
     }
     const personalResultsByMatch = new Map(personalResults.map(result => [result.id, result]));
+    const stageCatalog = await loadStageCatalog();
     const personalWeaponCounts = new Map();
     for (const result of personalResults.filter(result => result.confidence >= 0.9)) {
       personalWeaponCounts.set(result.weapon, (personalWeaponCounts.get(result.weapon) || 0) + 1);
@@ -447,6 +448,7 @@ export class Pipeline {
         id: result.id,
         stage: result.stage,
         rule: result.rule,
+        stageAsset: stageCatalog.assets.get(`${result.stage}\u0000${result.rule}`) || null,
         confidence: result.confidence,
         evidence: result.evidence,
         source: result.source,
@@ -672,38 +674,17 @@ export class Pipeline {
       const hiddenTimes = mapCandidates.filter(sample => sample.mapUi?.visible).map(sample => sample.time);
       const playerCounts = detectPlayerCounts(battleHud, { gameplayEnd, hiddenTimes });
       const gameCounts = detectGameCounts(gameCountSamples, { gameplayEnd, hiddenTimes, rule: gameCountRule });
-      const observedMap = selectObservedMapFrame(mapCandidates, deaths);
-      const spatialObservations = detectSpatialObservations(mapCandidates);
-      const playerRoute = buildPlayerRoute(spatialObservations);
-      const spatialPredictions = buildShortPredictions(spatialObservations);
-      const allyTracks = detectAllyTracks(mapCandidates);
-      const allyPredictions = buildEntityPredictions(allyTracks);
-      const enemyThreatZones = buildEnemyThreatZones(deaths, spatialObservations);
-      const enemySightPredictions = buildEnemySightPredictions(detections, playerRoute);
-      let stageMap = null;
-      let observedImageUrl = null;
-      if (observedMap) {
-        const mapName = `match-${String(match.number).padStart(2, '0')}-map.jpg`;
-        await extractJpegCrop(clipPath, observedMap.time, path.join(thumbnailDir, mapName), {
-          x: 440, y: 20, width: 1040, height: 1040, outputWidth: 720, outputHeight: 720,
-        });
-        observedImageUrl = relativeMediaPath('thumbnails', id, mapName);
-      }
-      if (acceptedStage || observedMap) {
-        stageMap = {
-          imageUrl: acceptedStage?.stageAsset
-            ? `/assets/stage-maps/${encodeURIComponent(acceptedStage.stageAsset)}`
-            : observedImageUrl,
-          observedImageUrl,
-          observedAt: observedMap?.time ?? null,
-          source: acceptedStage?.source || observedMap.source,
-          confidence: acceptedStage?.confidence ?? observedMap.confidence,
-          stage: acceptedStage?.stage || null,
-          rule: acceptedStage?.rule || null,
-          evidence: acceptedStage?.evidence || null,
+      const stageMap = acceptedStage?.stageAsset
+        ? {
+          imageUrl: `/assets/stage-maps/${encodeURIComponent(acceptedStage.stageAsset)}`,
+          source: acceptedStage.source,
+          confidence: acceptedStage.confidence,
+          stage: acceptedStage.stage,
+          rule: acceptedStage.rule,
+          evidence: acceptedStage.evidence || null,
           coordinateSpace: { width: 1000, height: 1000 },
-        };
-      }
+        }
+        : null;
       const describedDeaths = describeSelfDeaths(deaths, { detections, playerCounts });
       const deathSequenceResult = await analyzeDeathSequencesWithCodex({ clipPath, deaths: describedDeaths, workDir, matchNumber: index + 1 });
       const analyzedDeaths = deathSequenceResult.deaths;
@@ -760,16 +741,6 @@ export class Pipeline {
           },
         },
         stageMap,
-        detections,
-        playerRoute,
-        spatial: {
-          observations: spatialObservations,
-          entityTracks: allyTracks,
-          predictions: [...spatialPredictions, ...allyPredictions, ...enemySightPredictions].sort((left, right) => left.observedAt - right.observedAt),
-          threatZones: enemyThreatZones,
-          coordinateSpace: { width: 1000, height: 1000 },
-          policy: 'observed-map-information-only',
-        },
         capabilities: {
           segmentation: 'automatic-hud-heuristic',
           deaths: !resultAnalysis
@@ -794,21 +765,14 @@ export class Pipeline {
               ? 'partial-opening-battle-hud-two-frame-validated'
               : 'unavailable-opening-battle-hud-not-confident',
           playerCounts: 'automatic-battle-hud',
-          mapDetection: 'automatic-start-point-close-button-map-structure-temporal-fusion',
           matchOutcome: outcome
             ? 'automatic-post-match-win-lose-announcement'
             : 'unavailable-post-match-announcement-not-found',
-          playerRoute: playerRoute.length ? 'automatic-observed-self-marker-and-inferred-map-route' : 'unavailable-no-grounded-self-marker',
-          mapAllies: allyTracks.length ? 'automatic-observed-map-markers-and-facing-prediction' : 'unavailable-no-ally-map-markers',
-          enemyThreats: enemyThreatZones.length ? 'predicted-uncertainty-near-verified-self-deaths' : 'unavailable-no-grounded-enemy-location',
-          enemyRoutes: enemySightPredictions.length ? 'predicted-from-video-candidate-and-self-route-heading' : 'unavailable-no-overlapping-video-candidate-and-self-route',
           stageMap: automaticStage?.confidence >= 0.65
             ? automaticStage.source === 'personal-result-codex-vision'
               ? 'automatic-personal-result-stage-and-rule'
               : 'automatic-match-intro-stage-and-rule'
-            : stageMap
-              ? 'automatic-observed-map-screen'
-              : 'unavailable-stage-and-map-not-found',
+            : 'unavailable-stage-and-map-not-found',
           gameCountOcr: 'automatic-multi-threshold-hud-ocr',
         },
       };

@@ -2,7 +2,7 @@ import { sampleRgbWindow } from './ffmpeg.mjs';
 import { detectResultScreen } from './result-analysis.mjs';
 import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
 
-export const resultBoundaryModelVersion = 6;
+export const resultBoundaryModelVersion = 7;
 const DEFAULT_CONCURRENCY = positiveConcurrency(process.env.VIDEO_BOUNDARY_CONCURRENCY, 2);
 
 function stablePersonalRuns(observations, interval) {

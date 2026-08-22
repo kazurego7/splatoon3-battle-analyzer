@@ -29,6 +29,7 @@ archive/*
 !archive/README.md
 
 # Temporary review media
+tmp/
 tmp-*/
 tmp-*.jpg
 tmp-*.jpeg
