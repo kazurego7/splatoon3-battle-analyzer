@@ -1,5 +1,9 @@
 export function deathAnalysisFailure(error) {
   const detail = String(error?.codexDetail || error?.message || '').trim();
+  if (error?.code === 'CODEX_VERSION') return {
+    error: 'このモデルを利用するには、分析用Codexの更新が必要です。',
+    guidance: 'アプリの分析用Codexを更新し、アプリを再起動してから「分析を再開する」を押してください。', retryable: true,
+  };
   if (error?.code === 'CODEX_AUTH') return {
     error: 'Codexへログインしていないため、AI分析を開始できませんでした。',
     guidance: 'ChatGPTアカウントでCodexへログインしてから「分析を再開する」を押してください。', retryable: true,

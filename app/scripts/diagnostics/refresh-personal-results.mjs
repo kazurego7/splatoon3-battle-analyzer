@@ -55,11 +55,8 @@ for (const recording of recordings) {
       match.end = segment.end;
       match.duration = Number((segment.end - segment.start).toFixed(2));
     }
-    const versionedFileName = `match-${String(match.number).padStart(2, '0')}-v6.mp4`;
-    try {
-      await fs.access(path.join(MATCH_ROOT, recording.id, versionedFileName));
-      match.fileName = versionedFileName;
-    } catch {}
+    delete match.fileName; delete match.videoUrl;
+    match.sourceVideoUrl = `/media/recordings/${encodeURIComponent(recording.id)}/source.mp4`; match.sourceVideoStart = match.start;
     const analysisPath = path.join(ANALYSIS_ROOT, recording.id, `match-${String(match.number).padStart(2, '0')}.json`);
     const analysis = JSON.parse(await fs.readFile(analysisPath, 'utf8'));
     if (!result) {
@@ -98,7 +95,6 @@ for (const recording of recordings) {
     analysis.playerStats = {
       kills: result.kills,
       deaths: result.deaths,
-      specials: result.specials,
       source: result.source,
       confidence: result.confidence,
     };

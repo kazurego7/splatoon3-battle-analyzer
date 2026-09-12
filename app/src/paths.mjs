@@ -9,6 +9,7 @@ export const DATA_ROOT = process.env.SPLATOON_DATA_ROOT
   : path.join(PROJECT_ROOT, 'data');
 export const RAW_ROOT = path.join(DATA_ROOT, 'raw');
 export const MATCH_ROOT = path.join(DATA_ROOT, 'matches');
+export const LIVE_MEDIA_ROOT = path.join(DATA_ROOT, 'live-media');
 export const REMOTE_MATCH_ROOT = path.join(DATA_ROOT, 'remote-matches');
 export const APP_DATA_ROOT = path.join(DATA_ROOT, 'app');
 export const ANALYSIS_ROOT = path.join(APP_DATA_ROOT, 'analysis');

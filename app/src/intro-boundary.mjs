@@ -22,7 +22,7 @@ export function chooseIntroBoundary(observations, {
 }
 
 export async function refineIntroBoundaries(source, segments, duration, {
-  interval = 1,
+  interval = 0.5,
   searchBefore = 2,
   searchAfter = 4,
   sampler = sampleRgbWindow,

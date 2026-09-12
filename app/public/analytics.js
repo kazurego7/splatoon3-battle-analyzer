@@ -1,3 +1,4 @@
+import { appFetch as fetch } from './app-path.js';
 import {
   ANALYTICS_CHARTS,
   ANALYTICS_DIMENSIONS,

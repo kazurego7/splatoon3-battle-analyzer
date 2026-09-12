@@ -4,6 +4,7 @@ import { deathAnalysisFailure } from '../src/death-analysis-errors.mjs';
 
 test('gives an actionable response for every Codex failure category', () => {
   const cases = [
+    ['CODEX_VERSION', /更新が必要/, /分析用Codexを更新/],
     ['CODEX_AUTH', /ログイン/, /ChatGPTアカウント/],
     ['CODEX_LIMIT', /利用上限/, /利用上限が回復/],
     ['CODEX_NETWORK', /通信エラー/, /インターネット接続/],

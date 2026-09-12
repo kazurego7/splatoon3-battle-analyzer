@@ -29,7 +29,7 @@ test('refines every coarse start on the original recording timeline', async () =
   const sampler = async (_source, start, end) => {
     assert.equal(start, 968);
     assert.equal(end, 974);
-    return [nonRule(968), nonRule(969), nonRule(970), rule(971), rule(972), rule(973)];
+    return [nonRule(968), nonRule(969), nonRule(970.5), rule(971), rule(971.5), rule(972)];
   };
   const [refined] = await refineIntroBoundaries('recording.mp4', segments, 2081, { sampler });
   assert.equal(refined.start, 971);

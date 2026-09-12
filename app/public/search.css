@@ -48,6 +48,7 @@ body.search-page { min-height:100vh; color:var(--text); background:radial-gradie
 .search-result-card { display:grid; min-width:0; grid-template-columns:148px 1fr; overflow:hidden; border:1px solid var(--search-line); border-radius:13px; color:var(--text); background:var(--search-panel); text-decoration:none; transition:border-color .15s,transform .15s; }
 .search-result-card:hover { border-color:rgba(184,255,61,.38); transform:translateY(-2px); }
 .result-media { position:relative; min-height:164px; background:#050a0f; }
+.result-media>.thumbnail-pending { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:12px; font-weight:800; letter-spacing:.08em; background:linear-gradient(135deg,#090d14,#111827); }
 .result-media>img { width:100%; height:100%; object-fit:cover; }
 .result-outcome { display:inline-flex; width:58px; height:28px; align-items:center; justify-content:center; padding:0 8px; border:2px solid #fff; border-radius:7px; color:#081018; background:var(--search-muted); box-shadow:0 0 0 2px rgba(5,10,15,.48); font-size:11px; font-weight:950; letter-spacing:.03em; text-align:center; }
 .result-outcome.win { background:var(--lime); }

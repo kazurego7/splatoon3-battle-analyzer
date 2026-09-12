@@ -18,7 +18,8 @@
     <button class="app-menu-button" type="button" data-navigation-toggle aria-label="メニューを開く"><span></span><span></span><span></span></button>
     <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><div class="brand-title-row"><h1 id="screen-title">録画ライブラリ</h1><span id="screen-context" hidden></span></div></div>
     <div class="header-actions">
-      <span class="watch-path">data/raw を自動監視</span>
+      <span class="watch-path">OBSの録画先を自動監視</span>
+      <a href="/cloud.html">クラウド動画</a>
       <button id="open-recordings-folder-button" type="button">録画フォルダを開く</button>
       <span id="folder-open-status" class="folder-open-status" role="status" hidden></span>
     </div>
@@ -33,7 +34,7 @@
     <section class="content-panel">
       <div id="empty-state" class="empty-state">
         <div class="empty-icon">＋</div><h2>キャプチャ動画を置くだけ</h2>
-        <p><code>data/raw/</code> に動画を置くと、試合分割と分析が自動で始まります。</p>
+        <p>OBSでいつもどおり録画すると、保存中の動画を見つけて試合分割と分析を始めます。</p>
       </div>
 
       <div id="recording-view" hidden>
@@ -156,6 +157,6 @@
     </div>
   </div>
   <script type="module" src="/navigation.js?v=3"></script>
-  <script type="module" src="/app.js?v=3"></script>
+  <script type="module" src="/app.js?v=4"></script>
 </body>
 </html>

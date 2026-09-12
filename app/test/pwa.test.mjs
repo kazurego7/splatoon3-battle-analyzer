@@ -26,7 +26,7 @@ test('PWA manifestが通常・maskable・iOS用アイコンへ接続されてい
     assert.match(page, /rel="manifest" href="\/manifest\.webmanifest"/);
     assert.match(page, /rel="apple-touch-icon" sizes="180x180" href="\/icons\/apple-touch-icon\.png"/);
   }
-  assert.match(navigation, /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(navigation, /serviceWorker\.register\(appUrl\('\/sw\.js'\), \{ scope: appUrl\('\/'\) \}\)/);
   assert.match(serviceWorker, /CACHE_NAME/);
 });
 

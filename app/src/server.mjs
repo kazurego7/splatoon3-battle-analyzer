@@ -1,4 +1,8 @@
 import http from 'node:http';
+import { sendBody } from './http-performance.mjs';
+import { ListAssets } from './list-assets.mjs';
+import { LiveDetailService } from './live-detail-service.mjs';
+import { migrateSourceMatches } from './source-matches.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -8,15 +12,22 @@ import { Store } from './store.mjs';
 import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
 import { deathAnalysisFailure } from './death-analysis-errors.mjs';
 import { parseByteRange } from './http-range.mjs';
-import { ANALYSIS_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, REMOTE_MATCH_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
+import { ANALYSIS_ROOT, LIVE_MEDIA_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, REMOTE_MATCH_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
 import { MatchAnalyticsService } from './match-analytics.mjs';
-import { prepareRemoteVideo, remoteVideoState } from './remote-video.mjs';
+
 import { weaponCatalogEntries, weaponCatalogMetadata } from './weapon-analysis.mjs';
+import { CloudService } from './cloud-service.mjs';
+import { cloudRoute } from './cloud-routes.mjs';
+import { appBase, appDataUrl, appUrl, mountedHtml } from '../public/app-path.js';
 
 const PORT = Number(process.env.PORT || 4310);
 const HOST = process.env.HOST || '127.0.0.1';
 const store = new Store();
+const listAssets = new ListAssets();
 await store.load();
+await migrateSourceMatches(store);
+const cloud = new CloudService(store);
+await cloud.load();
 const pipeline = new Pipeline(store);
 const matchAnalytics = new MatchAnalyticsService(store);
 await matchAnalytics.load();
@@ -36,9 +47,8 @@ const mimeTypes = {
 };
 
 function json(response, status, value) {
-  const body = Buffer.from(JSON.stringify(value));
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length });
-  response.end(body);
+  const body = Buffer.from(JSON.stringify(value, (_, item) => appDataUrl(item, response.appBasePath || '')));
+  sendBody(response.req, response, body, 'application/json; charset=utf-8', { status, cache: response.getHeader('Cache-Control') || 'private, no-cache' });
 }
 
 function runFolderLauncher(command, args, options = {}) {
@@ -130,8 +140,8 @@ async function updateAnalysisFile(analysisPath, update) {
 
 function publicDeathAnalysisState(state) {
   if (!state) return { status: 'idle' };
-  const { status, phase, completedDeaths, totalDeaths, startedAt, updatedAt, error, guidance, retryable } = state;
-  return { status, phase, completedDeaths, totalDeaths, startedAt, updatedAt, error, guidance, retryable };
+  const { status, phase, completedDeaths, totalDeaths, startedAt, updatedAt, activity, error, guidance, retryable } = state;
+  return { status, phase, completedDeaths, totalDeaths, startedAt, updatedAt, activity, error, guidance, retryable };
 }
 
 function savedDeathAnalysisState(jobKey, analysis) {
@@ -147,11 +157,21 @@ function savedDeathAnalysisState(jobKey, analysis) {
   return publicDeathAnalysisState(saved);
 }
 
-async function runDeathAnalysisJob({ jobKey, analysisPath, clipPath, deaths, workDir, matchNumber, refresh }) {
+async function runDeathAnalysisJob({ jobKey, analysisPath, clipPath, deaths, workDir, matchNumber, refresh, videoRange = null }) {
   const job = runningDeathAnalyses.get(jobKey);
   try {
     const result = await analyzeDeathSequencesWithCodex({
-      clipPath, deaths, workDir, matchNumber, force: true, refresh, required: true,
+      clipPath, deaths, workDir, matchNumber, force: true, refresh, required: true, videoRange,
+      analysisContext: JSON.parse(await fsp.readFile(analysisPath, 'utf8')),
+      onActivity: event => {
+        if (event.type === 'item.started' || event.type === 'item.completed') {
+          job.activity = event.item?.type === 'mcp_tool_call' && event.item?.server === 'match_video'
+            ? (['frame', 'frames'].includes(event.item?.arguments?.action) ? '自分で選んだ時刻の映像を確認しています' : '事前分析データを確認しています')
+            : event.item?.type === 'command_execution' ? '映像・事前分析データを調査しています'
+            : event.item?.type === 'image_view' ? '選んだ場面の画像を確認しています' : '分析内容を整理しています';
+          job.updatedAt = new Date().toISOString();
+        }
+      },
       onSequences: async sequenceResult => {
         const reportState = {
           ...job,
@@ -258,6 +278,27 @@ async function serveFile(request, response, file) {
   const stat = await fsp.stat(file);
   if (!stat.isFile()) throw new Error('Not a file');
   const type = mimeTypes[path.extname(file).toLowerCase()] || 'application/octet-stream';
+  if (type.startsWith('image/') && new URL(request.url, 'http://localhost').searchParams.get('size') === 'icon') {
+    try { sendBody(request, response, await listAssets.thumbnail(file, 96), 'image/webp'); return; }
+    catch { /* Keep the original image available if conversion fails. */ }
+  }
+  if (!type.startsWith('video/') && !request.headers.range) {
+    let body = await fsp.readFile(file);
+    if (request.appBasePath && ['.html', '.json', '.webmanifest'].includes(path.extname(file))) {
+      const text = body.toString('utf8');
+      body = Buffer.from(type.startsWith('text/html') ? mountedHtml(text, request.appBasePath)
+        : JSON.stringify(JSON.parse(text), (_, value) => path.extname(file) === '.webmanifest' ? appUrl(value, request.appBasePath) : appDataUrl(value, request.appBasePath)));
+    }
+    sendBody(request, response, body, type); return;
+  }
+  if (request.appBasePath && ['.html', '.json', '.webmanifest'].includes(path.extname(file))) {
+    const text = await fsp.readFile(file, 'utf8');
+    const content = type.startsWith('text/html') ? mountedHtml(text, request.appBasePath)
+      : JSON.stringify(JSON.parse(text), (_, value) => path.extname(file) === '.webmanifest' ? appUrl(value, request.appBasePath) : appDataUrl(value, request.appBasePath));
+    const body = Buffer.from(content);
+    response.writeHead(200, { 'Content-Type': type, 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+    response.end(request.method === 'HEAD' ? undefined : body); return;
+  }
   const range = parseByteRange(request.headers.range, stat.size);
   const commonHeaders = {
     'Content-Type': type,
@@ -285,46 +326,25 @@ async function serveFile(request, response, file) {
   else fs.createReadStream(file).pipe(response);
 }
 
-function remoteVideoMatch(recordingId, fileName) {
-  const recording = store.get(recordingId);
-  const match = recording?.matches?.find(item => item.fileName === fileName);
-  return recording && match ? { recording, match } : null;
-}
-
-function remoteVideoPublicUrl(codec, recordingId, fileName) {
-  return `/media/remote-matches/${codec}/${encodeURIComponent(recordingId)}/${encodeURIComponent(fileName)}`;
-}
-
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+    request.appBasePath = response.appBasePath = appBase(url);
+    if (request.appBasePath) {
+      if (url.pathname === request.appBasePath) {
+        response.writeHead(308, { Location: `${request.appBasePath}/${url.search}`, 'Cache-Control': 'no-store' }); response.end(); return;
+      }
+      url.pathname = url.pathname.slice(request.appBasePath.length);
+    }
     const parts = url.pathname.split('/').filter(Boolean);
 
     if (request.method === 'GET' && url.pathname === '/api/recordings') {
-      response.setHeader('Cache-Control', 'no-store');
-      json(response, 200, store.list());
+      response.setHeader('Cache-Control', 'private, no-cache');
+      json(response, 200, await listAssets.recordings(cloud.decorate(store.list()), ANALYSIS_ROOT));
       return;
     }
-    if ((request.method === 'GET' || request.method === 'POST') && parts[0] === 'api' && parts[1] === 'remote-video' && parts[2] && parts[3]) {
-      const recordingId = decodeURIComponent(parts[2]);
-      const fileName = decodeURIComponent(parts[3]);
-      const codec = url.searchParams.get('codec') === 'hevc' ? 'hevc' : 'h264';
-      const found = remoteVideoMatch(recordingId, fileName);
-      if (!found) return json(response, 404, { error: '試合動画が見つかりません' });
-      const source = safeJoin(MATCH_ROOT, [recordingId, fileName]);
-      const output = safeJoin(REMOTE_MATCH_ROOT, [codec, recordingId, fileName]);
-      let state = await remoteVideoState(source, output, codec);
-      if (request.method === 'POST' && state.status !== 'ready' && state.status !== 'preparing') {
-        await prepareRemoteVideo(source, output, codec);
-        state = { status: 'preparing', codec };
-      }
-      response.setHeader('Cache-Control', 'no-store');
-      json(response, state.status === 'error' ? 500 : 200, {
-        ...state,
-        url: state.status === 'ready' ? remoteVideoPublicUrl(codec, recordingId, fileName) : null,
-      });
-      return;
-    }
+    if (await cloudRoute(request, response, url, cloud)) return;
+    if (parts[0] === 'api' && parts[1] === 'remote-video') return json(response, 410, { error: '外出先の動画はR2で再生します。ページを開き直してください。' });
     if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'recordings' && parts[3] === 'retry') {
       const recording = store.get(decodeURIComponent(parts[2]));
       if (!recording) return json(response, 404, { error: 'Recording not found' });
@@ -339,21 +359,29 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/open-recordings-folder') {
-      await fsp.mkdir(RAW_ROOT, { recursive: true });
+      const currentRecording = store.list().find(item => item.status === 'recording' && item.source);
+      const recordingsFolder = currentRecording ? path.dirname(currentRecording.source) : RAW_ROOT;
+      await fsp.mkdir(recordingsFolder, { recursive: true });
       try {
-        await openFolder(RAW_ROOT);
-        json(response, 200, { ok: true, path: RAW_ROOT });
+        await openFolder(recordingsFolder);
+        json(response, 200, { ok: true, path: recordingsFolder });
       } catch (error) {
         console.error('Failed to open recordings folder', error);
         json(response, 500, {
           error: '録画フォルダを開けませんでした。',
-          guidance: `エクスプローラーを開き、アドレス欄に「${RAW_ROOT}」を貼り付けてください。`,
-          path: RAW_ROOT,
+          guidance: `エクスプローラーを開き、アドレス欄に「${recordingsFolder}」を貼り付けてください。`,
+          path: recordingsFolder,
         });
       }
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/analytics') {
+      if (url.searchParams.get('view') === 'search') {
+        const fields = ['recordingId', 'matchNumber', 'analysisUrl', 'recordedAt', 'thumbnailUrl', 'stage', 'rule', 'outcome', 'selfWeapon', 'allyWeapons', 'enemyWeapons', 'playerStats', 'deathCount'];
+        response.setHeader('Cache-Control', 'private, no-cache');
+        json(response, 200, { records: matchAnalytics.list().map(record => Object.fromEntries(fields.map(key => [key, record[key]]))) });
+        return;
+      }
       response.setHeader('Cache-Control', 'no-store');
       json(response, 200, {
         records: matchAnalytics.list(),
@@ -424,6 +452,12 @@ const server = http.createServer(async (request, response) => {
       const body = await readJson(request);
       const deaths = (analysis.events || []).filter(event => event.type === 'death');
       if (!deaths.length) return json(response, 400, { error: '分析できるデスがありません' });
+      if (!match.fileName && (recording.live || !match.sourceVideoUrl)) return json(response, 409, {
+        error: '録画終了後にAI映像分析を開始できます。',
+        guidance: '録画終了後、もう一度このボタンを押してください。',
+      });
+      const videoRange = match.fileName ? null : { start: match.sourceVideoStart ?? match.start, end: (match.sourceVideoStart ?? match.start) + analysis.media.duration };
+      if (videoRange && (!Number.isFinite(videoRange.start) || videoRange.start < 0 || !Number.isFinite(videoRange.end) || videoRange.end <= videoRange.start)) return json(response, 409, { error: '試合の動画区間を確認できませんでした。' });
       const now = new Date().toISOString();
       const job = {
         status: 'sequences', phase: 'sequences', completedDeaths: deaths.filter(death => Array.isArray(death.sequence)).length,
@@ -434,7 +468,7 @@ const server = http.createServer(async (request, response) => {
       try { await writeAnalysisAtomic(analysisPath, analysis); }
       catch (error) { runningDeathAnalyses.delete(jobKey); throw error; }
       void runDeathAnalysisJob({
-        jobKey, analysisPath, clipPath: safeJoin(MATCH_ROOT, [recordingId, match.fileName]), deaths,
+        jobKey, analysisPath, clipPath: match.fileName ? safeJoin(MATCH_ROOT, [recordingId, match.fileName]) : recording.source, deaths, videoRange,
         workDir: path.join(WORK_ROOT, recordingId), matchNumber: match.number, refresh: body.refresh === true,
       });
       json(response, 202, { state: publicDeathAnalysisState(job), analysis });
@@ -451,20 +485,23 @@ const server = http.createServer(async (request, response) => {
       await serveFile(request, response, safeJoin(MATCH_ROOT, parts.slice(2)));
       return;
     }
-    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'remote-matches') {
-      const codec = parts[2] === 'hevc' ? 'hevc' : parts[2] === 'h264' ? 'h264' : null;
-      const recordingId = decodeURIComponent(parts[3] || '');
-      const fileName = decodeURIComponent(parts[4] || '');
-      if (!codec) return json(response, 404, { error: '動画形式が不正です' });
-      const found = remoteVideoMatch(recordingId, fileName);
-      if (!found) return json(response, 404, { error: '試合動画が見つかりません' });
-      const source = safeJoin(MATCH_ROOT, [recordingId, fileName]);
-      const output = safeJoin(REMOTE_MATCH_ROOT, [codec, recordingId, fileName]);
-      if ((await remoteVideoState(source, output, codec)).status !== 'ready') return json(response, 409, { error: 'ネットワーク用動画を準備中です' });
-      await serveFile(request, response, output);
+    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'live') {
+      await serveFile(request, response, safeJoin(LIVE_MEDIA_ROOT, parts.slice(2)));
+      return;
+    }
+    if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'recordings' && parts[2]) {
+      const recording = store.get(decodeURIComponent(parts[2]));
+      if (!recording?.source) return json(response, 404, { error: '元の録画が見つかりません' });
+      await serveFile(request, response, recording.source);
       return;
     }
     if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'thumbnails') {
+      if (url.searchParams.get('size') === 'list') {
+        const file = safeJoin(THUMBNAIL_ROOT, parts.slice(2));
+        try { sendBody(request, response, await listAssets.thumbnail(file), 'image/webp'); }
+        catch { await serveFile(request, response, file); }
+        return;
+      }
       await serveFile(request, response, safeJoin(THUMBNAIL_ROOT, parts.slice(2)));
       return;
     }
@@ -500,6 +537,8 @@ server.listen(PORT, HOST, async () => {
   console.log(`Battle Review: http://${localHost}:${PORT}`);
   if (process.env.BATTLE_REVIEW_REMOTE_URL) console.log(`Battle Review (Tailscale): ${process.env.BATTLE_REVIEW_REMOTE_URL}`);
   matchAnalytics.start();
+  new LiveDetailService(store).start();
+  cloud.start();
   try {
     await pipeline.start({ autoProcess: process.env.AUTO_PROCESS !== 'false' });
   } catch (error) {

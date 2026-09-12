@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>クラウド動画 | Battle Review</title><link rel="stylesheet" href="/styles.css"></head>
+<body class="cloud-settings"><main>
+<a href="/">← 録画ライブラリ</a><h1>クラウド動画</h1>
+<p>自宅ではローカル動画、外出先ではR2の動画を再生します。接続後は既存の試合も新しい試合も順次転送します。自宅での振り返りは転送を待たずに始められます。</p>
+<label>この端末の再生先 <select id="source"><option value="auto">自動（自宅LANはローカル・外部はクラウド）</option><option value="local">ローカル動画</option><option value="cloud">クラウド動画</option></select></label>
+<p class="muted">自宅でもTailscaleのアドレスを開く場合は「ローカル動画」を選んでください。この設定は今のブラウザに保存されます。</p>
+<p id="connection" role="status">接続状態を確認中…</p><p id="capacity"></p>
+<section class="cloud-job" aria-label="転送の操作">
+<h2>R2への自動転送</h2><p id="transfer-status" role="status">転送状態を確認中…</p>
+<button id="transfer-toggle" type="button" disabled>転送状態を確認中…</button>
+<p class="muted">一時停止すると上り回線を空けられます。転送済みの動画は引き続き再生できます。再開すると途中から転送し、停止状態はアプリの再起動後も維持します。</p>
+</section>
+<details id="setup"><summary>R2の接続設定</summary>
+<ol><li><a href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer">Cloudflare</a>でR2を有効にし、Standardの専用バケットを作成します。公開アクセスや独自ドメインは不要です。</li><li>R2のAPIトークン管理で「オブジェクトの読み取りと書き込み」を選び、このバケットだけに権限を付けます。</li><li>アカウントID・バケット名・発行された2つのキーを下に入力します。</li></ol>
+<p>R2の無料枠はアカウント全体の使用量で決まります。このアプリはバケットの使用量が8GBを超える転送を止めますが、Cloudflare側の請求上限を設定する機能ではありません。元のローカル動画は残ります。</p>
+<form id="config" hidden autocomplete="off">
+<label>アカウントID<input name="accountId" required spellcheck="false" autocomplete="off" placeholder="Cloudflareの32文字のID"></label>
+<label>バケット名<input name="bucket" required spellcheck="false" placeholder="splatoon-videos"></label>
+<label>Access Key ID<input name="accessKeyId" type="password" required autocomplete="new-password"></label>
+<label>Secret Access Key<input name="secretAccessKey" type="password" required autocomplete="new-password"></label>
+<button type="submit">接続して自動転送を開始</button>
+</form><p id="local-only" hidden>接続キーの入力は自宅PCの <a href="http://localhost:4310/cloud.html">localhost:4310</a> で行ってください。</p>
+</details>
+<p id="message" role="status"></p><div id="jobs"></div>
+</main><script type="module" src="/cloud-settings.js"></script></body></html>

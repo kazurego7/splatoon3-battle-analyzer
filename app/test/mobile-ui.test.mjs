@@ -83,8 +83,11 @@ test('主要画面が共通ハンバーガーナビゲーションと画面名�
   assert.match(searchScript, /const RULE_ORDER = \['ナワバリ', 'エリア', 'ヤグラ', 'ホコ', 'アサリ'\]/);
   assert.match(searchScript, /enableHorizontalWheelScroll\(byId\('stage-options'\)\)/);
   assert.match(searchScript, /requestIdleCallback/);
+  const analyticsFetch = searchScript.indexOf("fetch('/api/analytics?view=search',");
+  const initialRender = searchScript.indexOf('renderFilters(); updateResults();', analyticsFetch);
+  const weaponsFetch = searchScript.indexOf("fetch('/api/analytics/weapons')");
   assert.ok(
-    searchScript.indexOf("fetch('/api/analytics',") < searchScript.indexOf("fetch('/api/analytics/weapons',"),
+    analyticsFetch >= 0 && initialRender > analyticsFetch && weaponsFetch > initialRender,
     'ブキ画像カタログは試合データの初期表示後に読み込む',
   );
   assert.doesNotMatch(searchScript, /direct-all-option/);
@@ -129,7 +132,7 @@ test('ダッシュボードはスマホで1列になり、検索画面は縦ス�
   ]);
   assert.match(styles, /@media \(max-width:700px\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
-  assert.match(styles, /\.app-header \{ position:sticky; top:0; z-index:80; height:56px; min-height:56px;/);
+  assert.match(styles, /\.app-header \{ position:sticky; top:0; z-index:80; height:calc\(56px \+ env\(safe-area-inset-top, 0px\)\); min-height:calc\(56px \+ env\(safe-area-inset-top, 0px\)\);/);
   assert.match(styles, /\.mobile-review-nav \{ position:sticky;[^}]*top:56px;/);
   assert.match(styles, /\.is-review \.video-panel \{ order:1/);
   assert.match(styles, /\.result-map-panel \{ display:grid/);

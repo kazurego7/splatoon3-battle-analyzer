@@ -1,13 +1,17 @@
+import { appFetch as fetch, appUrl, stripAppBase } from './app-path.js';
+import { mediaController } from './media-player.js';
+import { isRemoteAccess } from './media-access.js';
 import { formatReportTime, nearestClipIndex, nextClipIndex, patternReportModels } from './report-player.js';
 
 const byId = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const analysisUrl = params.get('analysis') || '';
-const videoUrl = params.get('video') || '';
+const analysisUrl = appUrl(params.get('analysis') || '');
+let videoUrl = params.get('video') || '';
+let playbackOffset = Math.max(0,Number(params.get('offset'))||0);
 const reportTitle = params.get('title') || '試合分析';
 
 function validLocalUrl(value, prefix) {
-  return value.startsWith(prefix) && !value.includes('\\') && !value.includes('..');
+  return stripAppBase(value).startsWith(prefix) && !value.includes('\\') && !value.includes('..');
 }
 
 function node(name, className, text) {
@@ -51,10 +55,13 @@ function createPatternPlayer(pattern, analysis, sourceUrl) {
   playerTop.append(modes, clipState);
 
   const videoShell = node('div', 'report-video-shell');
-  const video = document.createElement('video'); video.preload = 'metadata'; video.playsInline = true; video.src = sourceUrl;
+  const videoElement = document.createElement('video'); videoShell.append(videoElement);
+  const media = mediaController(videoElement);
+  const video = new Proxy(media, { get(target,key) { if(key==='currentTime')return Math.max(0,target.currentTime-playbackOffset); const value=target[key];return typeof value==='function'?value.bind(target):value; }, set(target,key,value) { target[key]=key==='currentTime'?Number(value)+playbackOffset:value;return true; } });
+  video.preload = 'metadata'; video.playsInline = true; video.src = sourceUrl;
   const fade = node('div', 'report-video-fade');
   const activeLabel = node('div', 'report-active-clip');
-  videoShell.append(video, fade, activeLabel);
+  videoShell.append(fade, activeLabel);
 
   const controls = node('div', 'report-player-controls');
   const play = node('button', 'report-play', '▶ 再生'); play.type = 'button';
@@ -134,7 +141,18 @@ function createPatternPlayer(pattern, analysis, sourceUrl) {
 
 async function loadReport() {
   byId('report-title').textContent = reportTitle;
-  const validVideo = validLocalUrl(videoUrl, '/media/matches/') || validLocalUrl(videoUrl, '/media/remote-matches/');
+  // Resolve the media again for this device, including reports opened from a copied link.
+  if(!validLocalUrl(analysisUrl,'/api/analysis/'))throw new Error('分析データのURLが不正です');
+  const recordingsResponse=await fetch('/api/recordings',{cache:'no-store'});
+  if(!recordingsResponse.ok)throw new Error('動画の状態を確認できません');
+  const recordings=await recordingsResponse.json();
+  const match=recordings.flatMap(item=>item.matches||[]).find(item=>item.analysisUrl===analysisUrl);
+  if(!match)throw new Error('対象の試合が見つかりません');
+  if(isRemoteAccess()){
+    if(match.cloud?.status!=='ready'||!match.cloud.url)throw new Error(match.cloud?.message||'クラウドで再生準備中です。録画ライブラリで完了後に開いてください。');
+    videoUrl=match.cloud.url;playbackOffset=0;
+  }else{videoUrl=match.sourceVideoUrl||match.videoUrl||'';playbackOffset=match.sourceVideoUrl?Number(match.sourceVideoStart)||0:0;}
+  const validVideo = validLocalUrl(videoUrl, '/api/cloud/') || validLocalUrl(videoUrl, '/media/matches/') || validLocalUrl(videoUrl, '/media/recordings/') || validLocalUrl(videoUrl, '/media/remote-matches/');
   if (!validLocalUrl(analysisUrl, '/api/analysis/') || !validVideo) throw new Error('分析データのURLが不正です');
   const response = await fetch(analysisUrl, { cache: 'no-store' });
   if (!response.ok) throw new Error('分析データを読み込めませんでした');

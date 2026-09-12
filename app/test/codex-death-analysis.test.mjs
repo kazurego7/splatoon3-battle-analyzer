@@ -85,6 +85,8 @@ test('recovers completed legacy batches so a retry only analyzes missing deaths'
 });
 
 test('classifies Codex JSONL errors from the CLI response', () => {
+  const version = createCodexExitError(1, JSON.stringify({ type: 'error', message: "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again." }), 'HTTP 401 Unauthorized');
+  assert.equal(version.code, 'CODEX_VERSION');
   const limit = createCodexExitError(1, '{"type":"error","error":{"message":"Usage limit reached"}}', '');
   const network = createCodexExitError(1, '', 'connection reset by peer');
   const auth = createCodexExitError(1, '', 'Not logged in');
@@ -105,6 +107,7 @@ test('analyzes all deaths in one run, publishes the death list, then builds the 
       clipPath, deaths, workDir: directory, matchNumber: 1, force: true, refresh: true, required: true,
       services: {
         codexAvailable: async () => true,
+        prepareWorkspace: async () => directory,
         analyzeSequences: async options => {
           order.push(`sequences:${options.deaths.length}`);
           return options.deaths.map(death => sequenceDeath(death.id));

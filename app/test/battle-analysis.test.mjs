@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths, isWeaponRosterVisible, openingRosterTimes } from '../src/battle-analysis.mjs';
-import { countUiProfileForRule, detectGameCounts, gameCountFrameRegionForRule, ruleHasVisiblePenalty, stabilizeGameCount, stabilizePenalty } from '../src/game-count-vision.mjs';
+import { countUiProfileForRule, detectGameCounts, gameCountFrameRegionForRule, inferGameCountRuleFromSamples, ruleHasVisiblePenalty, stabilizeGameCount, stabilizePenalty } from '../src/game-count-vision.mjs';
 import { analyzeMapCandidate, analyzeMapCloseButton, analyzeMapPanelConnections, analyzeMapStartPointButton, buildEnemySightPredictions, buildEnemyThreatZones, buildEntityPredictions, buildPlayerRoute, buildShortPredictions, detectAllyTracks, detectMapAllies, detectMapCursor, detectSpatialObservations, estimateMapTeamColor, selectObservedMapFrame, stabilizeMapVisibility } from '../src/map-analysis.mjs';
 import { attachRespawnEvidence } from '../src/analysis-overrides.mjs';
 import { analyzeEnemyColorFrame, buildDeathCameraDetections, detectEnemyColorMotionRuns } from '../src/perception-analysis.mjs';
@@ -216,6 +216,23 @@ test('game count stabilization rejects impossible OCR jumps', () => {
   const timeline = stabilizeGameCount(samples, 'left', { gameplayStart: 10, gameplayEnd: 13 });
   assert.deepEqual(timeline.map(item => item.value), [100, 99, 98, 98]);
   assert.equal(timeline.at(-1).source, 'held');
+});
+
+test('infers score-card and objective count profiles without waiting for metadata', () => {
+  const candidate = value => [{ value, cost: 0.05, support: 3 }];
+  const base = Array.from({ length: 40 }, (_, index) => ({
+    time: index * 0.5,
+    left: candidate(100),
+    right: candidate(100),
+  }));
+  const area = base.map((item, index) => index >= 20 && index < 32
+    ? { ...item, right: candidate(100 - (index - 19)) }
+    : item);
+  const clams = base.map((item, index) => index >= 24 ? { ...item, right: candidate(80) } : item);
+  const objective = base.map(item => ({ ...item, left: [], right: [] }));
+  assert.equal(inferGameCountRuleFromSamples(area, { gameplayStart: 5 }).rule, 'エリア');
+  assert.equal(inferGameCountRuleFromSamples(clams, { gameplayStart: 5 }).rule, 'アサリ');
+  assert.equal(inferGameCountRuleFromSamples(objective, { gameplayStart: 5 }).profile, 'objective-marker');
 });
 
 test('selects the count HUD and penalty behavior for each ranked rule', () => {

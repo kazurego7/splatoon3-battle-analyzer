@@ -36,7 +36,7 @@ for (const recording of recordings) {
     try {
       results = await analyzeRecordingWeaponRosters({
         matches: [match],
-        clipRoot: path.join(MATCH_ROOT, recording.id),
+        source: recording.source,
         workDir: path.join(WORK_ROOT, recording.id),
         expectedWeapons: new Map([[id, analyses.get(match.number).value.playerIdentity?.weapon?.name || null]]),
         force: true,

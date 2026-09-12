@@ -2,7 +2,7 @@ import { sampleRgbWindow } from './ffmpeg.mjs';
 import { detectResultScreen } from './result-analysis.mjs';
 import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
 
-export const resultBoundaryModelVersion = 7;
+export const resultBoundaryModelVersion = 8;
 const DEFAULT_CONCURRENCY = positiveConcurrency(process.env.VIDEO_BOUNDARY_CONCURRENCY, 2);
 
 function stablePersonalRuns(observations, interval) {
@@ -40,7 +40,7 @@ export function chooseResultBoundary(observations, { fallbackEnd, searchEnd, int
 }
 
 export async function refineResultBoundaries(source, segments, duration, {
-  interval = 1,
+  interval = 0.25,
   fineInterval = 0.25,
   sampler = sampleRgbWindow,
   onProgress,
@@ -51,7 +51,11 @@ export async function refineResultBoundaries(source, segments, duration, {
     // Results and victory animations can keep the coarse activity detector on
     // until the next intro. Always inspect the full post-game window instead of
     // assuming activeEnd is close to the end of gameplay.
-    const searchStart = Math.max(segment.start, Math.min(segment.activeEnd - 12, segment.end - 90));
+    const rawSearchStart = Math.max(segment.start, Math.min(segment.activeEnd - 12, segment.end - 90));
+    // Live frame timestamps are anchored at recording time zero. Keep batch
+    // sampling on the same absolute grid instead of inheriting a fractional
+    // offset from a coarse activity boundary.
+    const searchStart = Number((Math.floor(rawSearchStart / interval) * interval).toFixed(3));
     const searchEnd = Math.max(searchStart, Math.min(duration, segments[index + 1]?.start - 0.25 || duration));
     let observations = await sampler(source, searchStart, searchEnd, {
       interval,
@@ -61,7 +65,7 @@ export async function refineResultBoundaries(source, segments, duration, {
       },
     });
     let boundaryInterval = interval;
-    if (!stablePersonalRuns(observations, interval).length) {
+    if (!stablePersonalRuns(observations, interval).length && fineInterval < interval) {
       const finePersonal = await sampler(source, searchStart, searchEnd, {
         interval: fineInterval,
         onFrame: (frame, width, height, time) => {

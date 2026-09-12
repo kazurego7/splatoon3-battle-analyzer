@@ -81,6 +81,16 @@ export function deriveMatchAnalytics(analysis, { recording, match }) {
     source: weapon.source || null,
   } : null;
   const weaponRoster = analysis.weaponRoster;
+  const playerStats = analysis.playerStats ? {
+    ...analysis.playerStats,
+    kills: clampNumber(analysis.playerStats.kills, 0, 99),
+    deaths: personalResultDeaths ?? validatedDeaths ?? deaths.length,
+  } : {
+    kills: null,
+    deaths: validatedDeaths ?? deaths.length,
+  };
+  delete playerStats.specials;
+  delete playerStats.specialCount;
   const reliableRoster = weaponRoster?.source === 'opening-battle-hud-codex-vision-with-wikiwiki-reference-sheets' ? {
     modelVersion: weaponRoster.modelVersion,
     catalogVersion: weaponRoster.catalogVersion,
@@ -109,10 +119,7 @@ export function deriveMatchAnalytics(analysis, { recording, match }) {
     selfWeapon: reliableWeapon,
     roster: reliableRoster,
     deathCount: personalResultDeaths ?? validatedDeaths ?? deaths.length,
-    playerStats: analysis.playerStats || {
-      kills: null,
-      deaths: validatedDeaths ?? deaths.length,
-    },
+    playerStats,
     detectedDeathCount: deaths.length,
     ...advantageSummary(analysis.gameFlow?.playerCounts),
     ...countSummary(analysis.gameFlow?.gameCounts),

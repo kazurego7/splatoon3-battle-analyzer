@@ -30,7 +30,7 @@ export function classifySamples(samples, interval) {
 
 export function ruleIntroScore(sample) {
   if (sample.centerDarkRatio == null) return 0;
-  return (
+  const standard = (
     // The rule card's black ink occupies a stable quarter of the center crop.
     // Wider bounds also match the map overlay, player pose, logo, and XP cards.
     (sample.centerDarkRatio >= 0.22 && sample.centerDarkRatio <= 0.315 ? 0.42 : 0)
@@ -39,6 +39,15 @@ export function ruleIntroScore(sample) {
     + (sample.centerEdgeRatio >= 0.095 ? 0.25 : 0)
     + (sample.saturation >= 0.18 ? 0.08 : 0)
   );
+  // On bright stages the rule card keeps the same narrow black-card geometry
+  // and dense lettering, but the center crop can contain more white scenery
+  // than the standard profile permits. Keep this variant deliberately tight
+  // on all four measurements instead of lowering the global score threshold.
+  const brightStageCard = sample.centerDarkRatio >= 0.215 && sample.centerDarkRatio <= 0.235
+    && sample.centerWhiteRatio >= 0.14 && sample.centerWhiteRatio <= 0.22
+    && sample.centerEdgeRatio >= 0.14
+    && sample.saturation >= 0.3;
+  return brightStageCard ? Math.max(0.9, standard) : standard;
 }
 
 function density(flags, start, end) {

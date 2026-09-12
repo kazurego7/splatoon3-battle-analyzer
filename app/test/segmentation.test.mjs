@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySamples, detectMatchSegments } from '../src/segmentation.mjs';
+import { classifySamples, detectMatchSegments, ruleIntroScore } from '../src/segmentation.mjs';
 
 test('recognizes the rule card without confusing map, pose, logo, and XP screens', () => {
   const base = {
@@ -22,6 +22,16 @@ test('recognizes the rule card without confusing map, pose, logo, and XP screens
 
   const classified = classifySamples(samples, 2);
   assert.deepEqual(classified.map(sample => sample.ruleIntro), [true, false, false, false, false]);
+});
+
+test('recognizes a rule card over a bright stage without lowering the global threshold', () => {
+  const frame = {
+    centerDarkRatio: 0.22,
+    centerWhiteRatio: 0.19,
+    centerEdgeRatio: 0.17,
+    saturation: 0.36,
+  };
+  assert.equal(ruleIntroScore(frame), 0.9);
 });
 
 test('rule intro clusters split consecutive matches', () => {

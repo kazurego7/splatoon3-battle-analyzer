@@ -28,6 +28,19 @@ test('横断分析の試合レコードにK/Dを引き継ぐ', () => {
   assert.equal(record.deathCount, 4);
 });
 
+test('旧データにスペシャル数があっても横断分析へ引き継がない', () => {
+  const record = deriveMatchAnalytics({
+    matchId: 'match-01',
+    media: { duration: 180 },
+    events: [],
+    playerStats: { kills: 11, deaths: 4, specials: 3, source: 'legacy-result' },
+  }, {
+    recording: { id: 'recording-1', fileName: '2026-08-16_12-00-00.mp4' },
+    match: { id: 'match-01', number: 1, start: 0, duration: 180 },
+  });
+  assert.deepEqual(record.playerStats, { kills: 11, deaths: 4, source: 'legacy-result' });
+});
+
 test('基本項目を手動補正した試合を横断分析で利用できる', () => {
   const record = effectiveAnalyticsRecord({
     automatic: { stage: null, rule: null, outcome: null },

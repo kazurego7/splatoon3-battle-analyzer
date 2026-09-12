@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseDeathCandidateSet, detectResultScreen, reconcileDeathsWithResult } from '../src/result-analysis.mjs';
+import { chooseDeathCandidateSet, detectResultScreen, readPersonalResultKillCount, reconcileDeathsWithResult } from '../src/result-analysis.mjs';
 
 function death(time, { respawn = false, confidence = 0.9 } = {}) {
   return {
@@ -62,4 +62,19 @@ test('detects a personal result whose stage banner is mostly dark', () => {
 
   const result = detectResultScreen(frame, 100);
   assert.equal(result?.screenType, 'personal');
+});
+
+test('reads fixed-font personal result kills including a narrow leading one', () => {
+  const frame = new Uint8Array(960 * 540 * 3);
+  const paintProfile = (startX, profile) => profile.forEach((count, offset) => {
+    for (let y = 145; y < 145 + count; y += 1) {
+      const at = (y * 960 + startX + offset) * 3;
+      frame[at] = 255;
+      frame[at + 1] = 255;
+      frame[at + 2] = 255;
+    }
+  });
+  paintProfile(761, [0, 2, 9, 3, 0]);
+  paintProfile(768, [5, 3, 2, 9, 5]);
+  assert.equal(readPersonalResultKillCount(frame)?.value, 14);
 });

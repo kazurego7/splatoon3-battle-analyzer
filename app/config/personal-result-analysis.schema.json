@@ -9,7 +9,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "stage", "rule", "weapon", "kills", "deaths", "specials", "confidence", "evidence"],
+        "required": ["id", "stage", "rule", "weapon", "kills", "deaths", "confidence", "evidence"],
         "properties": {
           "id": { "type": "string" },
           "stage": { "type": "string" },
@@ -17,7 +17,6 @@
           "weapon": { "type": "string" },
           "kills": { "type": "integer", "minimum": 0, "maximum": 99 },
           "deaths": { "type": "integer", "minimum": 0, "maximum": 99 },
-          "specials": { "type": "integer", "minimum": 0, "maximum": 99 },
           "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
           "evidence": { "type": "string" }
         }

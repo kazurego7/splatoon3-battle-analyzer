@@ -66,6 +66,15 @@ export class Store extends EventEmitter {
     return current;
   }
 
+  async remove(id) {
+    const index = this.state.recordings.findIndex(item => item.id === id);
+    if (index < 0) return false;
+    const [recording] = this.state.recordings.splice(index, 1);
+    await this.save();
+    this.emit('change', { id, removed: true, recording: structuredClone(recording) });
+    return true;
+  }
+
   async save() {
     this.writeChain = this.writeChain.then(async () => {
       const temporary = `${this.stateFile}.${process.pid}.${Date.now()}.tmp`;

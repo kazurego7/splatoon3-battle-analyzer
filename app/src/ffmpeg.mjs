@@ -286,13 +286,26 @@ function analyzeHudRegion(frame, frameWidth, startX, startY, width, height) {
   return { darkRatio: dark / pixels, whiteRatio: white / pixels, edgeRatio: edge / pixels };
 }
 
-export async function sampleSelfHud(source, duration, { interval = 0.25, onProgress } = {}) {
+export function analyzeBattleHudFrame(frame, time, {
+  width = 565,
+  height = 60,
+  battleWidth = 495,
+  iconCenters = [48, 92, 139, 189, 307, 352, 397, 441],
+} = {}) {
+  const icons = iconCenters.map(centerX => analyzePlayerHudIcon(frame, width, height, centerX, time));
+  const timer = analyzeHudRegion(frame, width, 230, 5, 55, 50);
+  const self = analyzeHudIcon(frame, width, height, battleWidth, 70, time);
+  return { time, timer, team: icons.slice(0, 4), enemy: icons.slice(4), self };
+}
+
+export async function sampleSelfHud(source, duration, { interval = 0.25, startTime = 0, onProgress } = {}) {
   const width = 70;
   const height = 60;
   const frameSize = width * height * 3;
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG_PATH, [
-      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, startTime)), '-hwaccel', 'auto', '-i', source,
+      '-t', String(Math.max(0, duration)),
       '-vf', `fps=1/${interval},scale=1920:1080,crop=140:120:790:0,scale=${width}:${height}`,
       '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
     ], { windowsHide: true });
@@ -318,7 +331,7 @@ export async function sampleSelfHud(source, duration, { interval = 0.25, onProgr
   });
 }
 
-export async function sampleBattleHud(source, duration, { interval = 0.25, maxDuration = null, onProgress } = {}) {
+export async function sampleBattleHud(source, duration, { interval = 0.25, startTime = 0, maxDuration = null, onProgress } = {}) {
   const battleWidth = 495;
   const selfWidth = 70;
   const width = battleWidth + selfWidth;
@@ -327,8 +340,8 @@ export async function sampleBattleHud(source, duration, { interval = 0.25, maxDu
   const frameSize = width * height * 3;
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG_PATH, [
-      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
-      ...(Number.isFinite(maxDuration) ? ['-t', String(Math.max(0, maxDuration))] : []),
+      '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, startTime)), '-hwaccel', 'auto', '-i', source,
+      '-t', String(Math.max(0, Number.isFinite(maxDuration) ? Math.min(duration, maxDuration) : duration)),
       '-vf', `fps=1/${interval},scale=1920:1080,split=2[battle][self];[battle]crop=990:120:460:0,scale=${battleWidth}:${height}[wide];[self]crop=140:120:790:0,scale=${selfWidth}:${height}[own];[wide][own]hstack=inputs=2`,
       '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
     ], { windowsHide: true });
@@ -342,10 +355,7 @@ export async function sampleBattleHud(source, duration, { interval = 0.25, maxDu
         const frame = pending.subarray(0, frameSize);
         pending = pending.subarray(frameSize);
         const time = samples.length * interval;
-        const icons = iconCenters.map(centerX => analyzePlayerHudIcon(frame, width, height, centerX, time));
-        const timer = analyzeHudRegion(frame, width, 230, 5, 55, 50);
-        const self = analyzeHudIcon(frame, width, height, battleWidth, selfWidth, time);
-        samples.push({ time, timer, team: icons.slice(0, 4), enemy: icons.slice(4), self });
+        samples.push(analyzeBattleHudFrame(frame, time, { width, height, battleWidth, iconCenters }));
         if (samples.length % 40 === 0) onProgress?.(Math.min(1, time / duration));
       }
     });
@@ -415,13 +425,18 @@ function analyzeRespawnHud(frame, width, height, time) {
   };
 }
 
-export async function sampleRespawnHud(source, duration, { interval = 0.25, onProgress } = {}) {
+export function analyzeRespawnHudFrame(frame, width, height, time) {
+  return { ...analyzeRespawnHud(frame, width, height, time), ...analyzeRespawnFrame(frame, width, time) };
+}
+
+export async function sampleRespawnHud(source, duration, { interval = 0.25, startTime = 0, onProgress } = {}) {
   const width = 220;
   const height = 60;
   const frameSize = width * height * 3;
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG_PATH, [
-      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, startTime)), '-hwaccel', 'auto', '-i', source,
+      '-t', String(Math.max(0, duration)),
       '-vf', `fps=1/${interval},scale=1920:1080,crop=440:120:1480:940,scale=${width}:${height}`,
       '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
     ], { windowsHide: true });
@@ -435,7 +450,7 @@ export async function sampleRespawnHud(source, duration, { interval = 0.25, onPr
         const frame = pending.subarray(0, frameSize);
         pending = pending.subarray(frameSize);
         const time = samples.length * interval;
-        samples.push({ ...analyzeRespawnHud(frame, width, height, time), ...analyzeRespawnFrame(frame, width, time) });
+        samples.push(analyzeRespawnHudFrame(frame, width, height, time));
         if (samples.length % 40 === 0) onProgress?.(Math.min(1, time / duration));
       }
     });
@@ -449,6 +464,7 @@ export async function sampleRespawnHud(source, duration, { interval = 0.25, onPr
 
 export async function sampleGameCountFrames(source, duration, {
   interval = 1,
+  startTime = 0,
   onFrame,
   onProgress,
   crop = { x: 760, y: 120, width: 380, height: 180 },
@@ -458,7 +474,8 @@ export async function sampleGameCountFrames(source, duration, {
   const frameSize = width * height * 3;
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG_PATH, [
-      '-hide_banner', '-loglevel', 'error', '-hwaccel', 'auto', '-i', source,
+      '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, startTime)), '-hwaccel', 'auto', '-i', source,
+      '-t', String(Math.max(0, duration)),
       '-vf', `fps=1/${interval},scale=1920:1080,crop=${width}:${height}:${crop.x}:${crop.y}`,
       '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1',
     ], { windowsHide: true });
@@ -505,7 +522,7 @@ export async function extractRgbFrame(source, time, { width = 960, height = 540 
   });
 }
 
-export async function sampleRgbWindow(source, start, end, { interval = 1, width = 960, height = 540, onFrame } = {}) {
+export async function sampleRgbWindow(source, start, end, { interval = 1, width = 960, height = 540, timeOrigin = 0, onFrame } = {}) {
   const duration = Math.max(0, end - start);
   const frameSize = width * height * 3;
   return new Promise((resolve, reject) => {
@@ -523,7 +540,7 @@ export async function sampleRgbWindow(source, start, end, { interval = 1, width 
       while (pending.length >= frameSize) {
         const frame = Buffer.from(pending.subarray(0, frameSize));
         pending = pending.subarray(frameSize);
-        const time = start + samples.length * interval;
+        const time = start + samples.length * interval - timeOrigin;
         samples.push(onFrame ? onFrame(frame, width, height, time) : { time, frame });
       }
     });

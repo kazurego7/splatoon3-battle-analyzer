@@ -1,3 +1,4 @@
+import { appFetch as fetch } from './app-path.js';
 import { filterMatchRecords, matchReviewUrl, OUTCOME_LABELS, recordSelfWeapon, ruleIconUrl, searchDimensions, stageIconUrl, weaponCatalogEntry, weaponTypeForName, weaponTypeTabs } from './search-core.js';
 
 const byId = id => document.getElementById(id);
@@ -44,7 +45,7 @@ function optionImage(url, alt) {
   const fallback = node('i', '', '?'); fallback.setAttribute('aria-hidden', 'true');
   shell.append(fallback);
   if (url) {
-    const image = document.createElement('img'); image.src = url; image.alt = ''; image.loading = 'lazy';
+    const image = document.createElement('img'); image.src = url + (url.includes('?') ? '&' : '?') + 'size=icon'; image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
     image.addEventListener('load', () => fallback.hidden = true);
     image.addEventListener('error', () => image.remove());
     shell.append(image);
@@ -200,7 +201,7 @@ function weaponMini(name, isSelf = false) {
   const item = node('span', `weapon-mini${isSelf ? ' is-self' : ''}`);
   item.title = isSelf ? `自分: ${name}` : name;
   item.setAttribute('aria-label', item.title);
-  item.append(optionImage(weaponIcon(name), name));
+  item.dataset.weaponName = name; item.append(optionImage(weaponIcon(name), name));
   return item;
 }
 
@@ -218,7 +219,8 @@ function resultCard(record) {
   const card = node(url ? 'a' : 'article', 'search-result-card');
   if (url) card.href = url;
   const media = node('div', 'result-media');
-  if (record.thumbnailUrl) { const image = document.createElement('img'); image.src = record.thumbnailUrl; image.alt = `${record.stage || '未判定'}の試合`; image.loading = 'lazy'; media.append(image); }
+  if (record.thumbnailUrl) { const image = document.createElement('img'); image.src = record.thumbnailUrl + (record.thumbnailUrl.includes('?') ? '&' : '?') + 'size=list'; image.decoding = 'async'; image.alt = `${record.stage || '未判定'}の試合`; image.loading = 'lazy'; media.append(image); }
+  else media.append(node('span', 'thumbnail-pending', '準備中'));
   const outcome = node('b', `result-outcome ${record.outcome || 'unknown'}`, record.outcome === 'win' ? 'WIN' : record.outcome === 'lose' ? 'LOSE' : '—');
   const body = node('div', 'result-body');
   const heading = node('div', 'result-heading'); heading.append(node('h3', '', `${record.stage || 'ステージ未判定'} / ${record.rule || 'ルール未判定'}`), node('time', '', formatRecordedAt(record.recordedAt))); body.append(heading);
@@ -266,7 +268,7 @@ async function initialize() {
     if (event.target === byId('filter-dialog')) byId('filter-dialog').close();
   });
   try {
-    const analyticsResponse = await fetch('/api/analytics', { cache: 'no-store' });
+    const analyticsResponse = await fetch('/api/analytics?view=search', { cache: 'no-cache' });
     if (!analyticsResponse.ok) throw new Error('試合データを読み込めませんでした');
     const analytics = await analyticsResponse.json();
     state.records = analytics.records || [];
@@ -274,12 +276,18 @@ async function initialize() {
     const defer = window.requestIdleCallback || (callback => setTimeout(callback, 0));
     defer(async () => {
       try {
-        const response = await fetch('/api/analytics/weapons', { cache: 'no-store' });
+        const response = await fetch('/api/analytics/weapons');
         if (!response.ok) return;
         const payload = await response.json();
         state.weaponCatalog = (payload.weapons || []).filter(item => item.name);
-        resultCardCache.clear();
-        renderFilters(); updateResults();
+        for (const filter of FILTERS.filter(item => item.kind === 'weapon')) {
+          byId(filter.container).querySelectorAll('.icon-option').forEach(option => {
+            option.querySelector('.option-image')?.replaceWith(optionImage(weaponIcon(option.dataset.value), option.dataset.value));
+          });
+        }
+        for (const card of resultCardCache.values()) card.querySelectorAll('.weapon-mini[data-weapon-name]').forEach(item => {
+          item.querySelector('.option-image')?.replaceWith(optionImage(weaponIcon(item.dataset.weaponName), item.dataset.weaponName));
+        });
         if (byId('filter-dialog').open && activeFilterKey) {
           const filter = FILTERS.find(item => item.key === activeFilterKey);
           if (filter) renderWeaponTypeTabs(filter);

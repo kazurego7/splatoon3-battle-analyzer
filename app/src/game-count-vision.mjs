@@ -1022,3 +1022,40 @@ export function detectGameCounts(samples, options = {}) {
     };
   });
 }
+
+function longestAreaTickRun(samples) {
+  let best = 0;
+  for (const side of ['left', 'right']) {
+    const values = samples.map(sample => (sample[side] || [])
+      .find(candidate => candidate.cost <= 0.18 && candidate.value >= 2 && candidate.value <= 100)?.value ?? null);
+    for (let start = 0; start + 12 <= values.length; start += 1) {
+      const window = values.slice(start, start + 12);
+      let valid = 0;
+      let unitDrops = 0;
+      let increases = 0;
+      for (let index = 1; index < window.length; index += 1) {
+        if (window[index] == null || window[index - 1] == null) continue;
+        valid += 1;
+        const drop = window[index - 1] - window[index];
+        if (drop > 0 && drop <= 2) unitDrops += 1;
+        if (drop < 0) increases += 1;
+      }
+      if (valid >= 8 && increases === 0) best = Math.max(best, unitDrops);
+    }
+  }
+  return best;
+}
+
+export function inferGameCountRuleFromSamples(scoreSamples, { gameplayStart = 10 } = {}) {
+  const opening = scoreSamples.filter(sample => sample.time >= gameplayStart - 2 && sample.time <= gameplayStart + 12);
+  const scorePanelFrames = opening.filter(sample => ['left', 'right'].every(side => (sample[side] || [])
+    .some(candidate => candidate.value === 100 && candidate.cost <= 0.24))).length;
+  if (scorePanelFrames < 6) return { rule: 'ヤグラ', profile: 'objective-marker', scorePanelFrames, areaTickRun: 0 };
+  const areaTickRun = longestAreaTickRun(scoreSamples);
+  return {
+    rule: areaTickRun >= 4 ? 'エリア' : 'アサリ',
+    profile: 'score-card',
+    scorePanelFrames,
+    areaTickRun,
+  };
+}

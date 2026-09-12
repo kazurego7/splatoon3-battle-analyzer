@@ -1,3 +1,4 @@
+import { appUrl } from './app-path.js';
 export const RULE_ICONS = Object.freeze({
   ナワバリ: '▧', エリア: '◆', ヤグラ: '♜', ホコ: '➜', アサリ: '◉',
 });
@@ -90,9 +91,9 @@ export function matchReviewUrl(record) {
 }
 
 export function stageIconUrl(stage) {
-  return stage ? `/assets/stage-maps/${encodeURIComponent(`${stage}_エリア.webp`)}` : null;
+  return stage ? appUrl(`/assets/stage-maps/${encodeURIComponent(`${stage}_エリア.webp`)}`) : null;
 }
 
 export function ruleIconUrl(rule) {
-  return RULE_ICON_FILES[rule] ? `/assets/rule-icons/${RULE_ICON_FILES[rule]}` : null;
+  return RULE_ICON_FILES[rule] ? appUrl(`/assets/rule-icons/${RULE_ICON_FILES[rule]}`) : null;
 }

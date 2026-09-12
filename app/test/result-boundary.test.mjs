@@ -44,7 +44,7 @@ test('refinement scans absolute post-match time and keeps per-match fallback', a
     calls.push({ source, start, end, interval: options.interval });
     if (start === 247) return [
       { time: 316, screenType: 'personal' },
-      { time: 317, screenType: 'personal' },
+      { time: 316.25, screenType: 'personal' },
     ];
     return [];
   };
@@ -54,10 +54,9 @@ test('refinement scans absolute post-match time and keeps per-match fallback', a
     { start: 340, activeEnd: 590, end: 640 },
   ], 640, { sampler });
   assert.deepEqual(calls, [
-    { source: 'raw.mp4', start: 247, end: 339.75, interval: 1 },
-    { source: 'raw.mp4', start: 550, end: 640, interval: 1 },
+    { source: 'raw.mp4', start: 247, end: 339.75, interval: 0.25 },
     { source: 'raw.mp4', start: 550, end: 640, interval: 0.25 },
   ]);
-  assert.equal(segments[0].end, 318.25);
+  assert.equal(segments[0].end, 316.75);
   assert.equal(segments[1].end, 640);
 });

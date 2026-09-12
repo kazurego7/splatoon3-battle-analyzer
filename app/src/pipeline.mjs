@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { ANALYSIS_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
-import { ensureFfmpeg, extractJpeg, extractRgbFrame, probeMedia, runFfmpeg, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
+import { ANALYSIS_ROOT, LIVE_MEDIA_ROOT, MATCH_ROOT, RAW_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
+import { ensureFfmpeg, extractJpeg, extractRgbFrame, probeMedia, sampleBattleHud, sampleGameCountFrames, sampleRespawnHud, sampleRgbWindow, sampleVideo } from './ffmpeg.mjs';
 import { classifySamples, detectMatchSegments } from './segmentation.mjs';
 import { refineIntroBoundaries } from './intro-boundary.mjs';
 import { describeSelfDeaths, detectGameplayStart, detectPlayerCounts, detectSelfDeaths } from './battle-analysis.mjs';
@@ -18,13 +18,14 @@ import { chooseDeathCandidateSet, reconcileDeathsWithResult } from './result-ana
 import { refineResultBoundaries, resultBoundaryModelVersion } from './result-boundary.mjs';
 import { analyzeRecordingStages, loadStageCatalog } from './stage-analysis.mjs';
 import { analyzeRecordingPersonalResults } from './personal-result-analysis.mjs';
+import { createMatchThumbnail } from './match-thumbnail.mjs';
 import { analyzeRecordingWeaponRosters } from './weapon-roster-analysis.mjs';
 import { analyzeOutcomeLocally, outcomeModelVersion } from './outcome-analysis.mjs';
 import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
+import { sourceMatch } from './source-matches.mjs';
+import { LiveRecordingController } from './live-recording-controller.mjs';
+import { recordingSourceRoots } from './recording-roots.mjs';
 
-const CLIP_CONCURRENCY_OVERRIDE = process.env.VIDEO_CLIP_CONCURRENCY
-  ? positiveConcurrency(process.env.VIDEO_CLIP_CONCURRENCY, 2)
-  : null;
 const ANALYSIS_CONCURRENCY = positiveConcurrency(process.env.VIDEO_ANALYSIS_CONCURRENCY, 2);
 
 function slug(value) {
@@ -57,109 +58,16 @@ function matchesGameplayCache(cacheKey, segment) {
   return cacheKey === expected || String(cacheKey || '').startsWith(`${expected}:`);
 }
 
-async function encoderArgs(codec) {
-  const { stdout } = await runFfmpeg(['-hide_banner', '-encoders']);
-  if (codec === 'hevc') {
-    if (stdout.includes('hevc_nvenc')) return {
-      input: ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'],
-      output: ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-cq', '18', '-tag:v', 'hvc1'],
-      pixelFormat: [],
-    };
-    if (stdout.includes('libx265')) return {
-      input: [],
-      output: ['-c:v', 'libx265', '-preset', 'veryfast', '-crf', '18', '-tag:v', 'hvc1'],
-      pixelFormat: ['-pix_fmt', 'yuv420p'],
-    };
-  }
-  if (codec === 'h264') {
-    if (stdout.includes('h264_nvenc')) return {
-      input: ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'],
-      output: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-cq', '18'],
-      pixelFormat: [],
-    };
-    if (stdout.includes('libx264')) return {
-      input: [],
-      output: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18'],
-      pixelFormat: ['-pix_fmt', 'yuv420p'],
-    };
-  }
-  throw new Error(`入力コーデック ${codec} を維持できるエンコーダーがありません`);
-}
-
-async function cutMatch(source, destination, segment, encoder) {
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  const common = [
-    '-hide_banner', '-loglevel', 'error', '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
-    '-ss', segment.start.toFixed(3),
-  ];
-  const output = [
-    '-t', (segment.end - segment.start).toFixed(3), '-map', '0:v:0', '-map', '0:a?',
-    ...encoder.output, ...encoder.pixelFormat, '-c:a', 'aac', '-b:a', '192k',
-    '-movflags', '+faststart', '-y', destination,
-  ];
-  try {
-    await runFfmpeg([...common, ...encoder.input, '-i', source, ...output]);
-  } catch (error) {
-    if (!encoder.input.length) throw error;
-    await fs.rm(destination, { force: true });
-    await runFfmpeg([
-      ...common, '-i', source,
-      '-t', (segment.end - segment.start).toFixed(3), '-map', '0:v:0', '-map', '0:a?',
-      ...encoder.output, '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k',
-      '-movflags', '+faststart', '-y', destination,
-    ]);
-  }
-  return probeMedia(destination);
-}
-
-function matchRecord(id, segment, number, clipMedia) {
-  const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
-  return {
-    id: `${id}-match-${String(number).padStart(2, '0')}`,
-    number,
-    fileName,
-    start: segment.start,
-    end: segment.end,
-    duration: clipMedia.duration,
-    status: 'split',
-  };
-}
-
-async function reusableMatches(id, finalClips, segments) {
-  const matches = [];
-  try {
-    for (let index = 0; index < segments.length; index += 1) {
-      const number = index + 1;
-      const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
-      const clipMedia = await probeMedia(path.join(finalClips, fileName));
-      const expectedDuration = segments[index].end - segments[index].start;
-      if (!clipMedia.audioCodec || Math.abs(clipMedia.duration - expectedDuration) > 0.75) return null;
-      matches.push(matchRecord(id, segments[index], number, clipMedia));
-    }
-    return matches;
-  } catch {
-    return null;
-  }
-}
-
-async function reusableMatch(id, finalClips, segment, number) {
-  try {
-    const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
-    const clipMedia = await probeMedia(path.join(finalClips, fileName));
-    const expectedDuration = segment.end - segment.start;
-    if (!clipMedia.audioCodec || Math.abs(clipMedia.duration - expectedDuration) > 0.75) return null;
-    return matchRecord(id, segment, number, clipMedia);
-  } catch {
-    return null;
-  }
-}
-
 export class Pipeline {
   constructor(store) {
     this.store = store;
     this.queue = [];
     this.processing = false;
     this.scanTimer = null;
+    this.fileSnapshots = new Map();
+    this.liveRecordings = new Map();
+    this.sourceRoots = [RAW_ROOT];
+    this.ignoredExternalSources = new Set();
   }
 
   async start({ autoProcess = true } = {}) {
@@ -167,21 +75,61 @@ export class Pipeline {
     await Promise.all([
       fs.mkdir(RAW_ROOT, { recursive: true }),
       fs.mkdir(MATCH_ROOT, { recursive: true }),
+      fs.mkdir(LIVE_MEDIA_ROOT, { recursive: true }),
       fs.mkdir(ANALYSIS_ROOT, { recursive: true }),
       fs.mkdir(THUMBNAIL_ROOT, { recursive: true }),
       fs.mkdir(WORK_ROOT, { recursive: true }),
     ]);
+    this.sourceRoots = await recordingSourceRoots();
     await this.scan({ enqueue: autoProcess });
+    void this.backfillMissingThumbnails().catch(error => console.warn(`Thumbnail backfill failed: ${error.message}`));
     if (autoProcess) this.scanTimer = setInterval(() => this.scan().catch(error => console.error(error)), 5000);
   }
 
+  async backfillMissingThumbnails() {
+    for (const recording of this.store.list()) {
+      if (recording.live || recording.status !== 'ready' || !recording.source) continue;
+      const matches = structuredClone(recording.matches || []);
+      let changed = false;
+      for (const match of matches) {
+        if (match.status !== 'ready' || match.thumbnailUrl) continue;
+        try {
+          match.thumbnailUrl = await createMatchThumbnail({ recording, match });
+          changed ||= Boolean(match.thumbnailUrl);
+        } catch (error) {
+          console.warn(`Thumbnail backfill deferred for ${recording.id} match ${match.number}: ${error.message}`);
+        }
+      }
+      if (changed) await this.store.patch(recording.id, { matches });
+    }
+  }
+
   async scan({ enqueue = true } = {}) {
-    const files = (await fs.readdir(RAW_ROOT, { withFileTypes: true }))
-      .filter(entry => entry.isFile() && /\.(mp4|mov|mkv|webm)$/i.test(entry.name));
-    for (const entry of files) {
-      const source = path.join(RAW_ROOT, entry.name);
+    const files = (await Promise.all(this.sourceRoots.map(async root => {
+      const entries = await fs.readdir(root, { withFileTypes: true });
+      return entries
+        .filter(entry => entry.isFile() && /\.(mp4|mov|mkv|webm)$/i.test(entry.name))
+        .map(entry => ({ entry, root }));
+    }))).flat();
+    for (const { entry, root } of files) {
+      const source = path.join(root, entry.name);
       const stat = await fs.stat(source);
-      const id = recordingId(entry.name, stat.size);
+      const previous = this.fileSnapshots.get(source);
+      const existing = this.store.list().find(item => path.resolve(item.source) === path.resolve(source));
+      const recentlyModified = Date.now() - stat.mtimeMs < 15000;
+      const externalRoot = path.resolve(root) !== path.resolve(RAW_ROOT);
+      const growing = Boolean(previous && stat.size > previous.size);
+      if (externalRoot && this.ignoredExternalSources.has(source) && !growing) {
+        this.fileSnapshots.set(source, { size: stat.size, mtimeMs: stat.mtimeMs });
+        continue;
+      }
+      if (growing) this.ignoredExternalSources.delete(source);
+      if (!existing && !previous && externalRoot && !recentlyModified) {
+        this.ignoredExternalSources.add(source);
+        this.fileSnapshots.set(source, { size: stat.size, mtimeMs: stat.mtimeMs });
+        continue;
+      }
+      const id = existing?.id || recordingId(entry.name, Math.round(stat.birthtimeMs));
       let recording = this.store.get(id);
       if (!recording) {
         recording = {
@@ -199,7 +147,22 @@ export class Pipeline {
         };
         await this.store.upsert(recording);
       }
-      if (enqueue && recording.status === 'queued' && !this.queue.includes(id)) this.enqueue(id);
+      if (growing && !this.liveRecordings.has(id) && recording.status !== 'ready') {
+        const controller = new LiveRecordingController({ store: this.store, recording });
+        this.liveRecordings.set(id, controller);
+        await controller.start();
+      }
+      if (this.liveRecordings.has(id)) {
+        await this.store.patch(id, { size: stat.size });
+        if (!recentlyModified) {
+          const controller = this.liveRecordings.get(id);
+          this.liveRecordings.delete(id);
+          await controller.stop();
+        }
+      } else if (enqueue && !recentlyModified && recording.status === 'queued' && !this.queue.includes(id)) {
+        this.enqueue(id);
+      }
+      this.fileSnapshots.set(source, { size: stat.size, mtimeMs: stat.mtimeMs });
     }
   }
 
@@ -240,10 +203,7 @@ export class Pipeline {
     const recording = this.store.get(id);
     if (!recording) return;
     const workDir = path.join(WORK_ROOT, id);
-    const temporaryClips = path.join(workDir, 'clips');
-    const finalClips = path.join(MATCH_ROOT, id);
     await fs.mkdir(workDir, { recursive: true });
-    await fs.mkdir(temporaryClips, { recursive: true });
 
     await this.store.patch(id, { status: 'probing', phase: '動画情報を確認中', progress: 0.02, error: null });
     const media = await probeMedia(recording.source);
@@ -304,45 +264,10 @@ export class Pipeline {
     }
     await fs.writeFile(path.join(workDir, 'manifest.json'), `${JSON.stringify({ source: recording.source, segments }, null, 2)}\n`);
 
-    let matches = await reusableMatches(id, finalClips, segments);
-    if (matches) {
-      await this.store.patch(id, { status: 'splitting', phase: '分割済み動画を確認中', progress: 0.65 });
-    } else {
-      const encoder = await encoderArgs(media.codec);
-      const clipConcurrency = CLIP_CONCURRENCY_OVERRIDE ?? (encoder.input.length ? 1 : 2);
-      await fs.rm(temporaryClips, { recursive: true, force: true });
-      await fs.mkdir(temporaryClips, { recursive: true });
-      let completedClips = 0;
-      matches = await mapWithConcurrency(segments, clipConcurrency, async (segment, index) => {
-        const number = index + 1;
-        const fileName = `match-${String(number).padStart(2, '0')}.mp4`;
-        const temporary = path.join(temporaryClips, fileName);
-        await this.store.patch(id, {
-          status: 'splitting',
-          phase: `試合${number}/${segments.length}を分割中`,
-          progress: 0.3 + (completedClips / segments.length) * 0.35,
-        });
-        const reusable = await reusableMatch(id, finalClips, segment, number);
-        let match;
-        if (reusable) {
-          await fs.copyFile(path.join(finalClips, fileName), temporary);
-          match = reusable;
-        } else {
-          const clipMedia = await cutMatch(recording.source, temporary, segment, encoder);
-          if (!clipMedia.audioCodec) throw new Error(`試合${number}の音声ストリームを確認できませんでした`);
-          match = matchRecord(id, segment, number, clipMedia);
-        }
-        completedClips += 1;
-        await this.store.patch(id, {
-          status: 'splitting',
-          phase: `試合${completedClips}/${segments.length}を分割済み`,
-          progress: 0.3 + (completedClips / segments.length) * 0.35,
-        });
-        return match;
-      });
-      await fs.rm(finalClips, { recursive: true, force: true });
-      await fs.rename(temporaryClips, finalClips);
-    }
+    const matches = segments.map((segment, index) => sourceMatch(id, {
+      id: id + '-match-' + String(index + 1).padStart(2, '0'), number: index + 1,
+      start: segment.start, end: segment.end, duration: segment.end - segment.start, status: 'analyzing',
+    }));
     await this.store.patch(id, { matches, status: 'analyzing', phase: '各試合を分析中', progress: 0.68 });
     let reportedAnalysisProgress = 0.68;
     const updateAnalysisProgress = (phase, progress) => {
@@ -383,7 +308,6 @@ export class Pipeline {
         screenType: 'personal',
         killCount: result.kills,
         deathCount: result.deaths,
-        specialCount: result.specials,
         time: Number((segments[index].resultBoundary.detectedAt - match.start).toFixed(2)),
         evidence: result.evidence,
         confidence: result.confidence,
@@ -497,7 +421,7 @@ export class Pipeline {
       await this.store.patch(id, { status: 'analyzing', phase: 'バトル開始直後の味方・相手ブキを照合中', progress: 0.68 });
       weaponRostersByMatch = await analyzeRecordingWeaponRosters({
         matches,
-        clipRoot: finalClips,
+        source: recording.source,
         workDir,
         expectedWeapons: expectedRosterWeapons,
       });
@@ -509,9 +433,9 @@ export class Pipeline {
     await mapWithConcurrency(matches, ANALYSIS_CONCURRENCY, async (match, index) => {
       const cacheKey = segmentCacheKey(segments[index]);
       const gameplayKey = gameplayCacheKey(segments[index]);
-      const clipPath = path.join(finalClips, match.fileName);
+      const clipPath = recording.source;
       const thumbnailName = `match-${String(match.number).padStart(2, '0')}.jpg`;
-      await extractJpeg(clipPath, Math.min(35, Math.max(1, match.duration / 3)), path.join(thumbnailDir, thumbnailName), 640);
+      await extractJpeg(clipPath, match.start + Math.min(35, Math.max(1, match.duration / 3)), path.join(thumbnailDir, thumbnailName), 640);
       const gameplayEnd = Math.max(0, segments[index].activeEnd - match.start);
       const automaticStage = stageResultsByMatch.get(`match-${String(match.number).padStart(2, '0')}`);
       const acceptedStage = automaticStage?.confidence >= 0.65 ? automaticStage : null;
@@ -529,7 +453,7 @@ export class Pipeline {
             if (cached.version !== 3 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length || !cached.samples[0].self) throw new Error('古いHUDキャッシュ');
             return cached.samples;
           } catch {
-            const samples = await sampleBattleHud(clipPath, match.duration, {
+            const samples = await sampleBattleHud(clipPath, match.duration, { startTime: match.start,
               onProgress: ratio => updateAnalysisProgress(
                 `試合${index + 1}/${matches.length}の生存人数を検出中`,
                 0.68 + ((index + ratio) / matches.length) * 0.3,
@@ -545,7 +469,7 @@ export class Pipeline {
             if (cached.modelVersion !== respawnModelVersion || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古い復活UIキャッシュ');
             return cached.samples;
           } catch {
-            const samples = await sampleRespawnHud(clipPath, match.duration);
+            const samples = await sampleRespawnHud(clipPath, match.duration, { startTime: match.start });
             await fs.writeFile(respawnCache, `${JSON.stringify({ modelVersion: respawnModelVersion, cacheKey: gameplayKey, samples })}\n`);
             return samples;
           }
@@ -557,7 +481,7 @@ export class Pipeline {
             return cached.samples;
           } catch {
             let previousPerceptionFrame = null;
-            const samples = await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+            const samples = await sampleRgbWindow(clipPath, match.start, match.start + gameplayEnd, { timeOrigin: match.start,
               interval: 0.5,
               width: 480,
               height: 270,
@@ -578,7 +502,7 @@ export class Pipeline {
               || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いゲームカウントキャッシュ');
             return cached.samples;
           } catch {
-            const samples = await sampleGameCountFrames(clipPath, match.duration, {
+            const samples = await sampleGameCountFrames(clipPath, match.duration, { startTime: match.start,
               interval: 0.5,
               crop: gameCountFrameRegionForRule(gameCountRule),
               onFrame: (frame, width, _height, time) => analyzeGameCountFrame(frame, width, time, { rule: gameCountRule }),
@@ -597,7 +521,7 @@ export class Pipeline {
             if (cached.version !== 9 || !matchesGameplayCache(cached.cacheKey, segments[index]) || !cached.samples?.length) throw new Error('古いマップ候補キャッシュ');
             return cached.samples;
           } catch {
-            const samples = stabilizeMapVisibility(await sampleRgbWindow(clipPath, 0, gameplayEnd, {
+            const samples = stabilizeMapVisibility(await sampleRgbWindow(clipPath, match.start, match.start + gameplayEnd, { timeOrigin: match.start,
               interval: 0.5,
               onFrame: (frame, width, height, time) => analyzeMapCandidate(frame, width, height, time),
             }));
@@ -686,7 +610,15 @@ export class Pipeline {
         }
         : null;
       const describedDeaths = describeSelfDeaths(deaths, { detections, playerCounts });
-      const deathSequenceResult = await analyzeDeathSequencesWithCodex({ clipPath, deaths: describedDeaths, workDir, matchNumber: index + 1 });
+      const deathSequenceResult = await analyzeDeathSequencesWithCodex({
+        clipPath, deaths: describedDeaths, workDir, matchNumber: index + 1, videoRange: { start: match.start, end: match.end },
+        analysisContext: {
+          source: { fileName: recording.fileName, start: match.start, end: match.end },
+          media: { ...media, duration: match.duration }, events: describedDeaths,
+          gameFlow: { deaths: { self: deaths.map(death => [death.time, death.duration]) }, playerCounts, gameCounts },
+          playerStats: resultAnalysis, playerIdentity: identity, weaponRoster, outcome, stageMap,
+        },
+      });
       const analyzedDeaths = deathSequenceResult.deaths;
       const events = [...analyzedDeaths].sort((a, b) => a.time - b.time);
       const series = classified
@@ -780,7 +712,7 @@ export class Pipeline {
       await fs.writeFile(path.join(analysisDir, analysisName), `${JSON.stringify(analysis, null, 2)}\n`);
       Object.assign(match, {
         status: 'ready',
-        videoUrl: relativeMediaPath('matches', id, match.fileName),
+        sourceVideoUrl: `/media/recordings/${encodeURIComponent(id)}/source.mp4`, sourceVideoStart: match.start,
         thumbnailUrl: relativeMediaPath('thumbnails', id, thumbnailName),
         analysisUrl: `/api/analysis/${encodeURIComponent(id)}/${encodeURIComponent(analysisName)}`,
         eventCount: events.length,

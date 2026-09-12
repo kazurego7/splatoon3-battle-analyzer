@@ -86,6 +86,9 @@ body:not(.is-review) .match-list { min-height:0; padding-right:6px; padding-bott
 .is-review .header-actions { display:none; }.is-review .app-header { justify-content:flex-start; }.is-review .brand { flex:1; }.is-review .app-shell { display:block; }.is-review .content-panel { height:calc(100vh - 70px); padding:8px 10px; overflow:hidden; }.is-review .review-toolbar { display:none; }.is-review .review-grid { height:calc(100vh - 86px); }.is-review .panel-heading { min-height:48px; padding:7px 10px; }.is-review .video-panel,.is-review .result-map-panel,.is-review .evidence-panel { max-height:100%; }.is-review .video-panel { overflow-y:auto; }.is-review .event-list { max-height:calc(100vh - 181px); }.is-review .recordings-panel { display:none; }
 @media (max-width:1050px) { .review-grid { grid-template-columns:minmax(0,1.2fr) minmax(360px,.8fr); }.video-panel { grid-column:1/-1; order:1; }.result-map-panel { order:2; }.evidence-panel { order:3; }.is-review .content-panel { height:auto; overflow:visible; }.is-review .review-grid { height:auto; }.result-map-panel { height:auto; max-height:none; }.result-map-panel .map-shell { aspect-ratio:1; }.video-shell { height:auto; aspect-ratio:16/9; }.event-list,.is-review .event-list { max-height:560px; } }
 @media (max-width:900px) { body:not(.is-review) { height:auto; overflow:auto; } body:not(.is-review) .app-shell { height:auto; grid-template-columns:1fr; } body:not(.is-review) .content-panel { overflow:visible; } body:not(.is-review) #recording-view { display:block; height:auto; } body:not(.is-review) .match-list { overflow:visible; } body:not(.is-review) .recordings-panel { border-right:0; border-bottom:1px solid var(--line); } body:not(.is-review) .recording-list { display:flex; overflow:auto; } body:not(.is-review) .recording-card { min-width:260px; }.review-grid { grid-template-columns:1fr; }.video-panel { grid-column:auto; }.event-list { max-height:430px; } }
+
+.thumbnail-pending { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:12px; font-weight:800; letter-spacing:.08em; background:linear-gradient(135deg,#090d14,#111827); }
+.thumbnail-pending[hidden] { display:none; }
 @media (max-width:580px) { .app-header { padding:10px; }.brand p { display:none; }.brand h1 { font-size:17px; }.watch-path { display:none; }.content-panel,.is-review .content-panel { padding:7px; }.review-toolbar { align-items:flex-start; flex-wrap:wrap; }.review-toolbar > div { order:3; flex-basis:100%; }.panel-heading { min-height:55px; }.chart-legend { gap:7px; } }
 @media (max-width:800px) { .map-editor-modal-layout { grid-template-columns:1fr; overflow:auto; }.editor-map-shell { width:100%; }.map-editor-sidebar { overflow:visible; } }
 
@@ -167,7 +170,7 @@ body:not(.is-review) .match-list { min-height:0; padding-right:6px; padding-bott
   html { scroll-behavior:smooth; }
   body { min-width:0; padding-bottom:env(safe-area-inset-bottom); background:radial-gradient(circle at 80% -5%,#17243c 0,transparent 32%),var(--bg); }
   body.is-review { padding-bottom:0; }
-  .app-header { position:sticky; top:0; z-index:80; height:56px; min-height:56px; padding:8px 12px; border-bottom-color:rgba(255,255,255,.12); backdrop-filter:blur(16px); }
+  .app-header { position:sticky; top:0; z-index:80; height:calc(56px + env(safe-area-inset-top, 0px)); min-height:calc(56px + env(safe-area-inset-top, 0px)); padding:calc(8px + env(safe-area-inset-top, 0px)) 12px 8px; border-bottom-color:rgba(255,255,255,.12); backdrop-filter:blur(16px); }
   .brand { gap:8px; }
   .brand-mark { width:8px; height:30px; }
   .brand h1 { font-size:16px; letter-spacing:-.02em; }
@@ -249,7 +252,7 @@ body:not(.is-review) .match-list { min-height:0; padding-right:6px; padding-bott
 
 @media (max-width:700px) {
   body.is-review { height:100dvh; overflow:hidden; touch-action:pan-x pan-y; }
-  .is-review .app-shell { height:calc(100dvh - 56px); overflow:hidden; }
+  .is-review .app-shell { height:calc(100dvh - 56px - env(safe-area-inset-top, 0px)); overflow:hidden; }
   .is-review .content-panel { width:100%; height:100%; padding:8px 8px calc(68px + env(safe-area-inset-bottom)); overflow:hidden; }
   .is-review #review-view,.is-review .review-grid { width:100%; height:100%; min-height:0; overflow:hidden; }
   .is-review .review-grid { display:block; }
@@ -361,3 +364,25 @@ body.is-video-expanded { overflow:hidden!important; }
   .mobile-death-list-close-button.video-icon-button,
   .mobile-video-expand-button.video-icon-button { display:none; }
 }
+
+
+.cloud-settings { height:auto; overflow:auto; }
+.cloud-settings main { max-width:920px; margin:32px auto; padding:20px; }
+.cloud-settings h1 { margin:20px 0; }
+.cloud-settings p,.cloud-settings li { line-height:1.8; }
+.cloud-settings .muted { color:var(--muted); font-size:13px; }
+.cloud-settings a { color:#b8ff3d; }
+.cloud-settings select,.cloud-settings input { padding:10px; max-width:100%; background:#142235; color:#e8f0ff; border:1px solid #3a4d64; border-radius:7px; }
+.cloud-settings form { display:grid; gap:14px; margin:20px 0; max-width:560px; }
+.cloud-settings form[hidden] { display:none; }
+.cloud-settings form label { display:grid; gap:6px; }
+.cloud-settings button { border:1px solid #3a4d64; border-radius:7px; padding:10px 14px; background:#142235; color:#e8f0ff; font:inherit; cursor:pointer; }
+.cloud-settings button:disabled { opacity:.5; cursor:wait; }
+.cloud-settings details { padding:18px; border:1px solid var(--line); border-radius:12px; }
+.cloud-settings summary { cursor:pointer; }
+.cloud-job { border:1px solid var(--line); border-radius:12px; margin-top:16px; padding:18px; }
+.cloud-job h2 { font-size:16px; overflow-wrap:anywhere; }
+.cloud-job progress { accent-color:#b8ff3d; width:min(70%,320px); }
+#review-view[aria-busy="true"] { position:relative; min-height:240px; pointer-events:none; }
+#review-view[aria-busy="true"] > * { visibility:hidden; }
+#review-view[aria-busy="true"]::before { content:'試合を読み込んでいます…'; position:absolute; top:32px; left:24px; }

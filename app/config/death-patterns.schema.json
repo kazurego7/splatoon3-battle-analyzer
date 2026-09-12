@@ -2,29 +2,78 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["overallSummary", "patterns"],
+  "required": [
+    "overallSummary",
+    "patterns"
+  ],
   "properties": {
-    "overallSummary": { "type": "string", "minLength": 1, "maxLength": 800 },
+    "overallSummary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 800
+    },
     "patterns": {
       "type": "array",
       "maxItems": 6,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "title", "summary", "deathIds", "trigger", "repeatedAction", "consequence", "reviewFocus", "clips"],
+        "required": [
+          "id",
+          "title",
+          "summary",
+          "deathIds",
+          "trigger",
+          "repeatedAction",
+          "consequence",
+          "reviewFocus",
+          "clips"
+        ],
         "properties": {
-          "id": { "type": "string", "minLength": 1, "maxLength": 80 },
-          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-          "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
           "deathIds": {
             "type": "array",
             "minItems": 2,
-            "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
           },
-          "trigger": { "type": "string", "minLength": 1, "maxLength": 300 },
-          "repeatedAction": { "type": "string", "minLength": 1, "maxLength": 300 },
-          "consequence": { "type": "string", "minLength": 1, "maxLength": 300 },
-          "reviewFocus": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "repeatedAction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "consequence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "reviewFocus": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
           "clips": {
             "type": "array",
             "minItems": 2,
@@ -32,13 +81,35 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["deathId", "startOffset", "endOffset", "label", "reason"],
+              "required": [
+                "deathId",
+                "startOffset",
+                "endOffset",
+                "label",
+                "reason"
+              ],
               "properties": {
-                "deathId": { "type": "string", "minLength": 1, "maxLength": 80 },
-                "startOffset": { "type": "number", "minimum": -12, "maximum": 0 },
-                "endOffset": { "type": "number", "minimum": -6, "maximum": 4 },
-                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-                "reason": { "type": "string", "minLength": 1, "maxLength": 300 }
+                "deathId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "startOffset": {
+                  "type": "number"
+                },
+                "endOffset": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                }
               }
             }
           }

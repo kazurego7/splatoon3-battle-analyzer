@@ -1,13 +1,15 @@
+import { appUrl } from './app-path.js';
 const screen = document.body.dataset.screen || '';
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1', '::1'].includes(location.hostname))) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register(appUrl('/sw.js'), { scope: appUrl('/') }).catch(() => {}));
 }
 
 const items = [
   { id: 'recordings', href: './index.html', icon: '▣', label: '録画ライブラリ', description: '録画と試合を確認' },
   { id: 'search', href: './search.html', icon: '⌕', label: '試合検索', description: '条件から試合を探す' },
   { id: 'analytics', href: './analytics.html', icon: '⌁', label: '分析ダッシュボード', description: '複数試合を集計' },
+  { id: 'cloud', href: './cloud.html', icon: '▶', label: 'クラウド動画', description: '外出先の再生・転送状況' },
 ];
 
 const toggle = document.querySelector('[data-navigation-toggle]');

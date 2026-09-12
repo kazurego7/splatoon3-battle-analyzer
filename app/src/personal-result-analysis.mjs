@@ -9,13 +9,20 @@ import { weaponCatalogEntries } from './weapon-analysis.mjs';
 import { mapWithConcurrency, positiveConcurrency } from './concurrency.mjs';
 
 const SCHEMA_PATH = path.join(APP_ROOT, 'config', 'personal-result-analysis.schema.json');
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 3;
 const BATCH_SIZE = 6;
 const ANALYSIS_ENABLED = process.env.CODEX_PERSONAL_RESULT_ANALYSIS !== 'false';
 const CODEX_MODEL = process.env.CODEX_PERSONAL_RESULT_MODEL || '';
 const CODEX_TIMEOUT_MS = Math.max(10_000, Number(process.env.CODEX_PERSONAL_RESULT_TIMEOUT_MS) || 180_000);
 const FRAME_CONCURRENCY = positiveConcurrency(process.env.VIDEO_ANALYSIS_CONCURRENCY, 2);
 export const personalResultAnalysisModelVersion = CACHE_VERSION;
+
+export function personalResultFrameTime(segment) {
+  const detected = segment.resultBoundary?.detectedAt;
+  if (!Number.isFinite(detected)) return null;
+  // Wait for the weapon cards to animate in, without crossing the clip boundary.
+  return Math.max(detected, Math.min(detected + 1.5, Number.isFinite(segment.end) ? segment.end - 0.25 : detected + 1.5));
+}
 
 function normalize(value, expectedIds, stageCatalog, weaponNames) {
   if (!value || !Array.isArray(value.matches)) return [];
@@ -27,14 +34,13 @@ function normalize(value, expectedIds, stageCatalog, weaponNames) {
     const weapon = String(item?.weapon || '').trim();
     const kills = Number(item?.kills);
     const deaths = Number(item?.deaths);
-    const specials = Number(item?.specials);
     const confidence = Number(item?.confidence);
     if (!expectedIds.has(id) || seen.has(id)
       || !stageCatalog.assets.has(`${stage}\u0000${rule}`) || !weaponNames.has(weapon)
-      || ![kills, deaths, specials].every(Number.isInteger) || !Number.isFinite(confidence)) return [];
+      || ![kills, deaths].every(Number.isInteger) || !Number.isFinite(confidence)) return [];
     seen.add(id);
     return [{
-      id, stage, rule, weapon, kills, deaths, specials,
+      id, stage, rule, weapon, kills, deaths,
       confidence: Number(Math.max(0, Math.min(1, confidence)).toFixed(3)),
       evidence: String(item?.evidence || '').trim().slice(0, 240),
       source: 'personal-result-codex-vision',
@@ -54,7 +60,7 @@ async function signature(source, entries) {
 async function analyzeBatch(entries, stageCatalog, weapons, batchIndex, frameDir) {
   const outputPath = path.join(frameDir, `personal-result-${batchIndex}.json`);
   const prompt = `スプラトゥーン3の個人リザルト画像だけを読み取ってください。ほかの種類のリザルト画面は使用してはいけません。
-右パネル上部からルールとステージ、プレイヤー名の右側に横並びで表示されるキル・デス・スペシャル回数、右パネル下部左端のブキカードからブキ名を読み取ります。キル・デス・スペシャルは各アイコン直後の「xNN」のNNです。推測せず、表示を直接読み取ってください。
+右パネル上部からルールとステージ、プレイヤー名の右側に表示されるキル・デス、右パネル下部左端のブキカードからブキ名を読み取ります。キル・デスは各アイコン直後の「xNN」のNNです。推測せず、表示を直接読み取ってください。スペシャル回数は読み取らず、出力にも含めないでください。
 
 画像の対応:
 ${entries.map(entry => `- ${entry.id}: ${path.basename(entry.imagePath)}`).join('\n')}
@@ -81,7 +87,7 @@ export async function analyzeRecordingPersonalResults({ source, segments, workDi
   const frameDir = path.join(workDir, 'personal-results');
   await fs.mkdir(frameDir, { recursive: true });
   const entries = (await mapWithConcurrency(segments, FRAME_CONCURRENCY, async (segment, index) => {
-    const time = segment.resultBoundary?.detectedAt;
+    const time = personalResultFrameTime(segment);
     if (!Number.isFinite(time)) return null;
     const id = `match-${String(index + 1).padStart(2, '0')}`;
     const imagePath = path.join(frameDir, `${id}.jpg`);

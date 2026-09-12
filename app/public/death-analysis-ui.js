@@ -27,6 +27,7 @@ export function deathAnalysisControlState({ analysis, deathCount = 0, jobState =
     status = `AIがデス一覧を生成しています${total ? `（${completed}/${total}件完了）` : ''}。完了後、そのままレポートを生成します…`;
   } else if (statusName === 'report') status = 'デス一覧を反映しました。AIが俯瞰レポートを生成しています…';
   else if (error || statusName === 'interrupted') status = [error, guidance].filter(Boolean).join(' ');
+  if (pending && jobState?.activity) status += ` ${jobState.activity}。`;
   return {
     showAnalyze: !analyzed && deathCount > 0,
     analyzeDisabled: pending || deathCount < 1,
