@@ -366,7 +366,7 @@ body.is-video-expanded { overflow:hidden!important; }
 }
 
 
-.cloud-settings { height:auto; overflow:auto; }
+body.cloud-settings { height:auto; overflow-y:auto; }
 .cloud-settings main { max-width:920px; margin:32px auto; padding:20px; }
 .cloud-settings h1 { margin:20px 0; }
 .cloud-settings p,.cloud-settings li { line-height:1.8; }
@@ -386,3 +386,10 @@ body.is-video-expanded { overflow:hidden!important; }
 #review-view[aria-busy="true"] { position:relative; min-height:240px; pointer-events:none; }
 #review-view[aria-busy="true"] > * { visibility:hidden; }
 #review-view[aria-busy="true"]::before { content:'試合を読み込んでいます…'; position:absolute; top:32px; left:24px; }
+
+.notification-settings { margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,.15); }
+.notification-settings p { margin:8px 12px; color:var(--muted); font-size:12px; line-height:1.6; }
+.notification-settings button:disabled { opacity:.5; cursor:default; }
+.notification-settings .app-navigation-action { display:block; min-height:44px; font-size:13px; font-weight:700; }
+.app-navigation-drawer { overflow-y:auto; }
+.recording-card .recording-cloud-status { color:var(--cyan); }

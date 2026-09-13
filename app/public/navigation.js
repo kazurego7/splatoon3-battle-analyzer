@@ -1,3 +1,5 @@
+import { mountNotificationSettings } from './notifications.js';
+import { isRemoteHost } from './media-access.js';
 import { appUrl } from './app-path.js';
 const screen = document.body.dataset.screen || '';
 
@@ -34,7 +36,7 @@ if (toggle) {
     link.innerHTML = `<i>${item.icon}</i><span><strong>${item.label}</strong><small>${item.description}</small></span>`;
     links.append(link);
   }
-  if (screen === 'recordings') {
+  if (screen === 'recordings' && !isRemoteHost()) {
     const action = document.createElement('button');
     action.type = 'button';
     action.className = 'app-navigation-action';
@@ -42,6 +44,7 @@ if (toggle) {
     action.addEventListener('click', () => document.getElementById('open-recordings-folder-button')?.click());
     links.append(action);
   }
+  mountNotificationSettings(links);
   drawer.append(heading, links);
   overlay.append(drawer);
   document.body.append(overlay);

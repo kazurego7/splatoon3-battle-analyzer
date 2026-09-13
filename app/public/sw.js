@@ -49,3 +49,28 @@ self.addEventListener('fetch', event => {
       .catch(() => caches.match(event.request)),
   );
 });
+
+self.addEventListener('push', event => {
+  let payload = {};
+  try { payload = event.data?.json() || {}; } catch {}
+  event.waitUntil(self.registration.showNotification(payload.title || 'AI分析が完了しました', {
+    body: payload.body || 'アプリで分析結果を確認できます。',
+    icon: scoped('/icons/app-icon-192.png'), badge: scoped('/icons/favicon-32.png'),
+    tag: payload.tag || 'analysis-complete', data: { url: payload.url || scoped('/') },
+  }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    let url = new URL(event.notification.data?.url || scoped('/'), self.location.origin);
+    if (url.origin !== self.location.origin || !url.pathname.startsWith(`${BASE_PATH}/`)) url = new URL(scoped('/'), self.location.origin);
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      const current = new URL(client.url);
+      if (current.origin === url.origin && current.pathname.startsWith(`${BASE_PATH}/`)) {
+        try { const navigated = await client.navigate(url.href); if (navigated) return navigated.focus(); } catch {}
+      }
+    }
+    return self.clients.openWindow(url.href);
+  })());
+});

@@ -51,7 +51,10 @@ test('試合動画の拡大画面にPC用グラフ・デス一覧と縮小操作
   assert.match(script, /reportVideo\.currentTime=clip\.start/);
   assert.match(script, /reportVideo\.currentTime>=activeClip\.end/);
   assert.doesNotMatch(script, /mobile-report-active-clip/);
+  assert.match(script, /left:width\*\.034,right:width\*\.978/);
   assert.match(script, /overlayCountLabels\?chartBounds\.left\+6:chartBounds\.left-8/);
+  assert.match(script, /elements\.chartLabels\.append\(label\)/);
+  assert.match(html, /id="chart-count-series"[\s\S]*id="chart-deaths"[\s\S]*id="chart-labels" pointer-events="none"[\s\S]*id="chart-hit"/);
   assert.match(script, /countTop:mobile\?38:34,countBottom:mobile\?218:176,labelY:mobile\?243:203,hoverTop:mobile\?0:218/);
   assert.match(script, /labelHeight=largeMobileLabel\?28:24,labelY=largeMobileLabel\?19:16/);
   assert.doesNotMatch(script, /chartBounds\.left\/1000/);
@@ -109,7 +112,7 @@ test('スマホ拡大画面は横向きでタップ時にシークと縮小だ�
   assert.match(styles, /mobile-death-list-open \.expanded-death-panel/);
   assert.match(styles, /body\.is-review \{ height:100dvh; overflow:hidden; touch-action:pan-x pan-y; \}/);
   assert.match(styles, /\.mobile-video-expand-button \{ position:absolute;[^}]*right:8px; bottom:8px;/);
-  assert.match(script, /width=mobile\?Math\.max\(360,Math\.min\(1000,fittedWidth\)\)/);
+  assert.match(script, /width=fittedWidth/);
   assert.match(styles, /\.video-panel \.chart-legend \{ flex-wrap:wrap;[^}]*overflow:visible;/);
   assert.match(styles, /@media \(min-width:701px\) \{[\s\S]*\.mobile-death-list-button\.video-icon-button,[\s\S]*\.mobile-video-expand-button\.video-icon-button \{ display:none; \}/);
   assert.match(html, /preserveAspectRatio="xMidYMid meet"/);

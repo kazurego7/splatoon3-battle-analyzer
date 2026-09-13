@@ -2,7 +2,7 @@ import { appFetch as fetch, appUrl } from './app-path.js';
 import { resolveOutcomeLabel } from './outcome.js';
 import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime, matchAnalysisBadge } from './death-analysis-ui.js';
 import { killDeathFromAnalysis } from './player-stats-ui.js';
-import { isRemoteAccess, playbackRecording, cloudStatusText } from './media-access.js';
+import { isRemoteAccess, isRemoteHost, recordingDisplayState, playbackRecording, cloudStatusText } from './media-access.js';
 import { mediaController } from './media-player.js';
 import { stageMapAssetUrl } from './stage-map-ui.js';
 import { patternReportModels } from './report-player.js';
@@ -12,8 +12,8 @@ const elements = {
   recordingList:byId('recording-list'), recordingCount:byId('recording-count'), empty:byId('empty-state'), recordingView:byId('recording-view'), reviewView:byId('review-view'),
   selectedTitle:byId('selected-title'), selectedStatus:byId('selected-status'), selectedProgress:byId('selected-progress'), error:byId('recording-error'), matchList:byId('match-list'),
   video:byId('match-video'), videoPanel:document.querySelector('.video-panel'), videoExpandButton:byId('video-expand-button'), mobileVideoExpandButton:byId('mobile-video-expand-button'), mobileDeathListButton:byId('mobile-death-list-button'), mobileDeathListCloseButton:byId('mobile-death-list-close-button'), videoCollapseButton:byId('video-collapse-button'), videoReviewControls:byId('video-review-controls'), videoNetworkStatus:byId('video-network-status'), videoNetworkStatusText:byId('video-network-status-text'), matchTitle:byId('match-title'), eventList:byId('event-list'), expandedDeathList:byId('expanded-death-list'), deathReportDigest:byId('death-report-digest'), deathAiButton:byId('death-ai-button'), deathAiStatus:byId('death-ai-status'), deathReportButton:byId('death-report-button'), currentTime:byId('current-time'), duration:byId('duration'), seek:byId('seek'),
-  timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), mobilePlaybackButton:byId('mobile-playback-button'), mobileSkipBackButton:byId('mobile-skip-back-button'), mobileSkipForwardButton:byId('mobile-skip-forward-button'), videoExpandTransition:byId('video-expand-transition'),
-  analysisChart:byId('analysis-chart'), chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHover:byId('chart-hover'), chartHit:byId('chart-hit'),
+  timeline:byId('timeline'), timelineProgress:byId('timeline-progress'), deathMarkers:byId('death-markers'), mobilePlaybackButton:byId('mobile-playback-button'), mobileSkipBackButton:byId('mobile-skip-back-button'), mobileSkipForwardButton:byId('mobile-skip-forward-button'), videoExpandTransition:byId('video-expand-transition'),
+  analysisChart:byId('analysis-chart'), chartAdvantage:byId('chart-advantage'), chartGrid:byId('chart-grid'), chartLabels:byId('chart-labels'), chartCountSeries:byId('chart-count-series'), chartDeaths:byId('chart-deaths'), chartCursor:byId('chart-cursor'), chartHover:byId('chart-hover'), chartHit:byId('chart-hit'),
   capabilityList:byId('capability-list'), stageMapImage:byId('stage-map-image'), mapPlaceholder:byId('map-placeholder'), mapSourceStatus:byId('map-source-status'), mapOverlay:byId('map-overlay'), strongPositionLayer:byId('strong-position-layer'),
   strongEditButton:byId('strong-edit-button'), strongEditPanel:byId('strong-edit-panel'), strongEditInstruction:byId('strong-edit-instruction'), strongTitleInput:byId('strong-title-input'), strongTipsInput:byId('strong-tips-input'), strongPositionList:byId('strong-position-list'), strongPositionCount:byId('strong-position-count'), strongFormTitle:byId('strong-form-title'), strongFormContext:byId('strong-form-context'), strongNewButton:byId('strong-new-button'), strongPositionButton:byId('strong-position-button'), strongTargetButton:byId('strong-target-button'), strongAddButton:byId('strong-add-button'),
   positionSaveStatus:byId('position-save-status'),
@@ -44,7 +44,10 @@ let reviewWeaponIcons = null;
 let reviewWeaponPromise = null;
 let reviewGeneration = 0;
 let refreshPending = false;
+let recordingsLoaded = false;
 const remoteAccess = isRemoteAccess();
+const remoteHost = isRemoteHost();
+if(remoteHost){elements.empty.querySelector('.empty-icon').textContent='▤';elements.empty.querySelector('h2').textContent='録画はまだありません';elements.empty.querySelector('p').textContent='録画が追加されると、ここに表示されます。';}
 
 let videoLoadGeneration = 0;
 let currentPlaybackUrl = null;
@@ -185,12 +188,14 @@ function setMobileReviewTab(tab='video') {
 function showAnalysisList() { reviewGeneration+=1; finishExpandedVideo();currentAnalysis=null;currentRecording=null;currentMatch=null;clearMatchVideo();elements.reviewView.hidden=true;setReviewMode(false);renderSelected(); }
 
 function recordingCard(recording) {
+  const display=recordingDisplayState(recording);
   const button=document.createElement('button'); button.type='button'; button.className=`recording-card${recording.id===selectedId?' is-selected':''}`;
   const top=document.createElement('div'); top.className='recording-card-top'; const title=document.createElement('strong'); title.textContent=recording.fileName;
-  const badge=document.createElement('span'); badge.className=`status-badge ${recording.status}`; badge.textContent=labels[recording.status]||recording.status; top.append(title,badge);
-  const detail=document.createElement('p'); detail.textContent=`${recording.phase}・${formatSize(recording.size)}${recording.matches?.length?`・${recording.matches.length}試合`:''}`;
-  const track=document.createElement('div'); track.className='progress-track'; const fill=document.createElement('span'); fill.style.width=`${Math.round((recording.progress||0)*100)}%`; track.append(fill);
-  button.append(top,detail,track); button.addEventListener('click',()=>selectRecording(recording.id)); return button;
+  const badge=document.createElement('span'); badge.className=`status-badge ${display.status}`; badge.textContent=labels[display.status]||display.status; top.append(title,badge);
+  const detail=document.createElement('p'); detail.textContent=`${display.phase}・${formatSize(recording.size)}${recording.matches?.length?`・${recording.matches.length}試合`:''}`;
+  const track=document.createElement('div'); track.className='progress-track'; const fill=document.createElement('span'); fill.style.width=`${Math.round((display.progress||0)*100)}%`; track.append(fill);
+  button.append(top,detail);
+  button.append(track); button.addEventListener('click',()=>selectRecording(recording.id)); return button;
 }
 
 function renderRecordings() {
@@ -219,7 +224,8 @@ function matchCard(recording,match) {
 
 function renderSelected() {
   const recording=recordings.find(item=>item.id===selectedId); if(!recording)return;
-  elements.recordingView.hidden=false; elements.selectedTitle.textContent=recording.fileName; elements.selectedStatus.textContent=recording.phase; elements.selectedProgress.textContent=`${Math.round((recording.progress||0)*100)}%`;
+  const display=recordingDisplayState(recording);
+  elements.recordingView.hidden=false; elements.selectedTitle.textContent=recording.fileName; elements.selectedStatus.textContent=display.phase; elements.selectedProgress.textContent=`${Math.round((display.progress||0)*100)}%`;
   elements.error.hidden=!recording.error; elements.error.textContent=recording.error||''; elements.matchList.replaceChildren(...(recording.matches||[]).map(match=>matchCard(recording,match)));
   if(recording.status==='error'){const retry=document.createElement('button');retry.type='button';retry.textContent='再分析する';retry.addEventListener('click',async()=>{await fetch(`/api/recordings/${encodeURIComponent(recording.id)}/retry`,{method:'POST'});await refresh();});elements.error.append(document.createElement('br'),retry);}
 }
@@ -234,15 +240,18 @@ function gameCountAt(time) { return stateAt(currentAnalysis?.gameFlow?.gameCount
 
 function syncChartViewport() {
   const rect=elements.analysisChart.getBoundingClientRect();
-  const mobile=window.innerWidth<=700&&!elements.videoPanel.classList.contains('is-expanded'),fittedWidth=rect.width>0&&rect.height>0?rect.width/rect.height*chartHeight:1000,width=mobile?Math.max(360,Math.min(1000,fittedWidth)):Math.max(640,Math.min(2400,fittedWidth));chartBounds={width,left:width*.034,right:width*.978,countTop:mobile?38:34,countBottom:mobile?218:176,labelY:mobile?243:203,hoverTop:mobile?0:218};elements.analysisChart.setAttribute('viewBox',`0 0 ${width} ${chartHeight}`);elements.chartHit.setAttribute('x',chartBounds.left);elements.chartHit.setAttribute('width',chartBounds.right-chartBounds.left);
+  const mobile=window.innerWidth<=700&&!elements.videoPanel.classList.contains('is-expanded'),fittedWidth=rect.width>0&&rect.height>0?rect.width/rect.height*chartHeight:1000,width=fittedWidth;chartBounds={width,left:width*.034,right:width*.978,countTop:mobile?38:34,countBottom:mobile?218:176,labelY:mobile?243:203,hoverTop:mobile?0:218};elements.analysisChart.setAttribute('viewBox',`0 0 ${width} ${chartHeight}`);// Use the visible seek track as the shared time axis, including mobile margins.
+  const track=elements.timeline.getBoundingClientRect();
+  if(rect.width>0&&track.width>0){chartBounds.left=(track.left-rect.left)/rect.width*width;chartBounds.right=(track.right-rect.left)/rect.width*width;}
+  elements.chartHit.setAttribute('x',chartBounds.left);elements.chartHit.setAttribute('width',chartBounds.right-chartBounds.left);
 }
 function refreshChartLayout() { syncChartViewport();if(!currentAnalysis)return;renderChart();updatePlaybackUi(); }
 
-function addChartLabel(text,x,y,anchor='end',className='chart-text') { const label=svgElement('text',{x,y,'text-anchor':anchor,class:className});label.textContent=text;elements.chartGrid.append(label); }
+function addChartLabel(text,x,y,anchor='end',className='chart-text') { const label=svgElement('text',{x,y,'text-anchor':anchor,class:className});label.textContent=text;elements.chartLabels.append(label); }
 function renderChart() {
   const duration=currentAnalysis.media.duration; const alive=currentAnalysis.gameFlow?.playerCounts||[]; const game=currentAnalysis.gameFlow?.gameCounts||[];const overlayCountLabels=window.innerWidth<=700&&!elements.videoPanel.classList.contains('is-expanded');
   elements.chartAdvantage.innerHTML=''; alive.forEach((item,index)=>{const end=alive[index+1]?.time??duration;if(end<=item.time)return;const difference=Math.max(-4,Math.min(4,item.difference||0)),strength=difference===0?.035:(.1+Math.abs(difference)*.11)*(item.source==='held'?.55:1);elements.chartAdvantage.append(svgElement('rect',{x:chartX(item.time),y:chartBounds.countTop,width:Math.max(0,chartX(end)-chartX(item.time)),height:chartBounds.countBottom-chartBounds.countTop,'fill-opacity':Number(strength.toFixed(3)),class:`chart-advantage ${difference>0?'positive':difference<0?'negative':'even'}`}));});
-  elements.chartGrid.innerHTML='';
+  elements.chartGrid.innerHTML='';elements.chartLabels.innerHTML='';
   [100,75,50,25,0].forEach(count=>{const y=gameY(count);elements.chartGrid.append(svgElement('line',{x1:chartBounds.left,x2:chartBounds.right,y1:y,y2:y,class:'chart-grid'}));addChartLabel(count,overlayCountLabels?chartBounds.left+6:chartBounds.left-8,y+5,overlayCountLabels?'start':'end',overlayCountLabels?'chart-text chart-count-label':'chart-text');});
   for(let index=0;index<=6;index+=1){const time=duration*index/6;addChartLabel(formatTime(time),chartX(time),chartBounds.labelY,index===0?'start':index===6?'end':'middle','chart-text chart-time-label');}
   elements.chartCountSeries.replaceChildren(
@@ -450,7 +459,7 @@ function finishChartSeek(event) {
   if(event.pointerType!=='mouse')elements.chartHover.replaceChildren();
 }
 
-async function refresh(){if(refreshPending)return;refreshPending=true;try{const nextRecordings=(await(await fetch('/api/recordings')).json()).map(recording=>playbackRecording(recording,remoteAccess)),changed=JSON.stringify(nextRecordings)!==JSON.stringify(recordings);recordings=nextRecordings;if(changed)renderRecordings();}catch(error){console.error(error);}finally{refreshPending=false;}}
+async function refresh(){if(refreshPending)return;refreshPending=true;try{const nextRecordings=(await(await fetch('/api/recordings')).json()).map(recording=>playbackRecording(recording,remoteAccess)),changed=JSON.stringify(nextRecordings)!==JSON.stringify(recordings);recordings=nextRecordings;if(changed||!recordingsLoaded)renderRecordings();recordingsLoaded=true;}catch(error){console.error(error);}finally{refreshPending=false;}}
 function toggleVideoPlayback(){if(elements.video.paused)elements.video.play().catch(console.error);else elements.video.pause();}
 function seekBySeconds(seconds){if(!currentAnalysis)return;setPlaybackTime(Math.max(0,Math.min(currentAnalysis.media.duration,playbackTime()+seconds)));updatePlaybackUi();}
 function syncMobilePlaybackButton(){const playing=!elements.video.paused&&!elements.video.ended;elements.mobilePlaybackButton.dataset.playing=String(playing);elements.mobilePlaybackButton.setAttribute('aria-label',playing?'一時停止':'再生');}
@@ -523,6 +532,7 @@ function handleReviewViewportResize(){
   if(!currentAnalysis||elements.reviewView.hidden)return;requestAnimationFrame(refreshChartLayout);
   if(!elements.videoPanel.classList.contains('is-expanded')&&performance.now()<reviewOrientationRecoveryUntil)settleReviewLayoutAfterOrientation();
 }
+const chartResizeObserver=new ResizeObserver(handleReviewViewportResize);chartResizeObserver.observe(elements.analysisChart);chartResizeObserver.observe(elements.timeline);
 window.addEventListener('resize',handleReviewViewportResize);window.visualViewport?.addEventListener('resize',handleReviewViewportResize);
 if(landscapeOrientation.addEventListener)landscapeOrientation.addEventListener('change',syncExpandedVideoToOrientation);else landscapeOrientation.addListener(syncExpandedVideoToOrientation);
 elements.video.addEventListener('pointerdown',handleExpandedVideoPointerDown);elements.video.addEventListener('pointermove',handleExpandedVideoPointerMove);elements.video.addEventListener('pointerup',finishExpandedVideoScrub);elements.video.addEventListener('pointercancel',finishExpandedVideoScrub);
@@ -547,6 +557,7 @@ elements.mapEditorModalClose.addEventListener('click',()=>closeMapEditors({resto
 elements.mapEditorModal.addEventListener('cancel',event=>{event.preventDefault();closeMapEditors({restore:true});});
 document.querySelectorAll('[data-review-target]').forEach(button=>button.addEventListener('click',()=>setMobileReviewTab(button.dataset.reviewTab)));
 byId('open-recordings-folder-button').addEventListener('click',async event=>{
+  if(remoteHost)return;
   const button=event.currentTarget,status=byId('folder-open-status');
   button.disabled=true;status.hidden=true;status.textContent='';
   try{

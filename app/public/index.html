@@ -17,10 +17,9 @@
   <header class="app-header">
     <button class="app-menu-button" type="button" data-navigation-toggle aria-label="メニューを開く"><span></span><span></span><span></span></button>
     <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><p>SPLATOON 3 / AUTO ANALYSIS</p><div class="brand-title-row"><h1 id="screen-title">録画ライブラリ</h1><span id="screen-context" hidden></span></div></div>
-    <div class="header-actions">
-      <span class="watch-path">OBSの録画先を自動監視</span>
-      <a href="/cloud.html">クラウド動画</a>
-      <button id="open-recordings-folder-button" type="button">録画フォルダを開く</button>
+    <div class="header-actions" hidden>
+      <span class="watch-path" hidden>OBSの録画先を自動監視</span>
+      <button id="open-recordings-folder-button" type="button" hidden>録画フォルダを開く</button>
       <span id="folder-open-status" class="folder-open-status" role="status" hidden></span>
     </div>
   </header>
@@ -32,7 +31,7 @@
     </aside>
 
     <section class="content-panel">
-      <div id="empty-state" class="empty-state">
+      <div id="empty-state" class="empty-state" hidden>
         <div class="empty-icon">＋</div><h2>キャプチャ動画を置くだけ</h2>
         <p>OBSでいつもどおり録画すると、保存中の動画を見つけて試合分割と分析を始めます。</p>
       </div>
@@ -92,7 +91,7 @@
               <div class="timeline-status"><span><strong id="current-time">00:00</strong> / <span id="duration">00:00</span></span></div>
               <div class="timeline" id="timeline"><div id="timeline-progress"></div><div id="death-markers" aria-label="自分のデス時刻"></div><input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="再生位置。左右矢印キーで1秒移動"></div>
               <svg id="analysis-chart" viewBox="0 0 1000 250" preserveAspectRatio="xMidYMid meet" role="img" aria-label="カウント、ペナルティ、人数有利・人数不利と自分のデスを示す時系列グラフ">
-                <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
+                <g id="chart-advantage"></g><g id="chart-grid"></g><g id="chart-count-series"></g><g id="chart-deaths"></g><g id="chart-labels" pointer-events="none"></g><g id="chart-cursor"></g><g id="chart-hover"></g>
                 <rect id="chart-hit" x="34" y="26" width="944" height="218"></rect>
               </svg>
               <div class="chart-legend"><span><i class="count-team"></i>味方カウント</span><span><i class="count-enemy"></i>相手カウント</span><span><i class="penalty-team"></i>味方ペナルティ</span><span><i class="penalty-enemy"></i>相手ペナルティ</span><span><i class="advantage"></i>人数有利</span><span><i class="disadvantage"></i>人数不利</span><span><i class="death"></i>自分のデス</span></div>

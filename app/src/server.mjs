@@ -1,3 +1,5 @@
+import { AnalysisNotifications } from './analysis-notifications.mjs';
+import { notificationRoute } from './notification-routes.mjs';
 import http from 'node:http';
 import { sendBody } from './http-performance.mjs';
 import { ListAssets } from './list-assets.mjs';
@@ -12,7 +14,7 @@ import { Store } from './store.mjs';
 import { analyzeDeathSequencesWithCodex } from './codex-death-analysis.mjs';
 import { deathAnalysisFailure } from './death-analysis-errors.mjs';
 import { parseByteRange } from './http-range.mjs';
-import { ANALYSIS_ROOT, LIVE_MEDIA_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, REMOTE_MATCH_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
+import { APP_DATA_ROOT, ANALYSIS_ROOT, LIVE_MEDIA_ROOT, MATCH_ROOT, POSITION_PLANS_FILE, PROJECT_ROOT, PUBLIC_ROOT, RAW_ROOT, REMOTE_MATCH_ROOT, THUMBNAIL_ROOT, WORK_ROOT } from './paths.mjs';
 import { MatchAnalyticsService } from './match-analytics.mjs';
 
 import { weaponCatalogEntries, weaponCatalogMetadata } from './weapon-analysis.mjs';
@@ -28,6 +30,8 @@ await store.load();
 await migrateSourceMatches(store);
 const cloud = new CloudService(store);
 await cloud.load();
+const notifications = new AnalysisNotifications({ stateFile: path.join(APP_DATA_ROOT, 'notifications.json'), analysisRoot: ANALYSIS_ROOT, store });
+await notifications.load();
 const pipeline = new Pipeline(store);
 const matchAnalytics = new MatchAnalyticsService(store);
 await matchAnalytics.load();
@@ -343,6 +347,7 @@ const server = http.createServer(async (request, response) => {
       json(response, 200, await listAssets.recordings(cloud.decorate(store.list()), ANALYSIS_ROOT));
       return;
     }
+    if (await notificationRoute(request, response, url, notifications)) return;
     if (await cloudRoute(request, response, url, cloud)) return;
     if (parts[0] === 'api' && parts[1] === 'remote-video') return json(response, 410, { error: '外出先の動画はR2で再生します。ページを開き直してください。' });
     if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'recordings' && parts[3] === 'retry') {
@@ -536,6 +541,7 @@ server.listen(PORT, HOST, async () => {
   const localHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
   console.log(`Battle Review: http://${localHost}:${PORT}`);
   if (process.env.BATTLE_REVIEW_REMOTE_URL) console.log(`Battle Review (Tailscale): ${process.env.BATTLE_REVIEW_REMOTE_URL}`);
+  notifications.start();
   matchAnalytics.start();
   new LiveDetailService(store).start();
   cloud.start();
