@@ -94,6 +94,8 @@ export class LiveMediaSession extends EventEmitter {
     const listPath = path.join(this.outputDir, 'segments.csv');
     const segmentPattern = path.join(this.outputDir, 'segment-%06d.mp4');
     const proxyEncoder = this.proxyEncoder || await resolveLiveProxyEncoder(this.ffmpegPath);
+    // These compressed fragments are for remote playback. Local playback reads
+    // the original recording directly, including while OBS is still writing.
     const proxyVideoOptions = proxyEncoder === 'h264_nvenc'
       ? ['-c:v', proxyEncoder, '-preset', 'p4', '-tune', 'll', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M', '-forced-idr', '1']
       : ['-c:v', proxyEncoder, '-preset', 'ultrafast', '-crf', '26', '-maxrate', '4M', '-bufsize', '6M', '-sc_threshold', '0'];

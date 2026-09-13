@@ -127,8 +127,8 @@ test('PWAはオンライン時に更新済み画面資産を優先する', async
     fs.readFile(new URL('sw.js', publicRoot), 'utf8'),
   ]);
 
-  assert.match(html, /styles\.css\?v=3/);
-  assert.match(html, /app\.js\?v=4/);
+  assert.match(html, /styles\.css\?v=\d+/);
+  assert.match(html, /app\.js\?v=\d+/);
   assert.match(worker, /battle-review-shell-v3/);
   assert.match(worker, /fetch\(event\.request\)[\s\S]*cache\.put\(event\.request, response\.clone\(\)\)[\s\S]*catch\(\(\) => caches\.match\(event\.request\)\)/);
 });

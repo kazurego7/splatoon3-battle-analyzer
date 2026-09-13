@@ -1,13 +1,13 @@
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const CACHE_PREFIX = `battle-review-shell-v3:${BASE_PATH || 'root'}:`;
-const CACHE_NAME = `${CACHE_PREFIX}mount-v1`;
+const CACHE_NAME = `${CACHE_PREFIX}mount-v5`;
 const scoped = pathname => `${BASE_PATH}${pathname}`;
 const APP_SHELL = [
   '/',
   '/index.html',
-  '/styles.css?v=3',
+  '/styles.css?v=4',
   '/navigation.js?v=3',
-  '/app.js?v=3',
+  '/app.js?v=6',
   '/manifest.webmanifest',
   '/icons/app-icon-192.png',
   '/icons/app-icon-512.png',

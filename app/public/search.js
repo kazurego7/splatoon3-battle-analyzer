@@ -1,4 +1,5 @@
 import { appFetch as fetch } from './app-path.js';
+import { imageSourceUrl } from './media-access.js';
 import { filterMatchRecords, matchReviewUrl, OUTCOME_LABELS, recordSelfWeapon, ruleIconUrl, searchDimensions, stageIconUrl, weaponCatalogEntry, weaponTypeForName, weaponTypeTabs } from './search-core.js';
 
 const byId = id => document.getElementById(id);
@@ -45,7 +46,7 @@ function optionImage(url, alt) {
   const fallback = node('i', '', '?'); fallback.setAttribute('aria-hidden', 'true');
   shell.append(fallback);
   if (url) {
-    const image = document.createElement('img'); image.src = url + (url.includes('?') ? '&' : '?') + 'size=icon'; image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
+    const image = document.createElement('img'); image.src = imageSourceUrl(url, 'icon'); image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
     image.addEventListener('load', () => fallback.hidden = true);
     image.addEventListener('error', () => image.remove());
     shell.append(image);
@@ -219,7 +220,7 @@ function resultCard(record) {
   const card = node(url ? 'a' : 'article', 'search-result-card');
   if (url) card.href = url;
   const media = node('div', 'result-media');
-  if (record.thumbnailUrl) { const image = document.createElement('img'); image.src = record.thumbnailUrl + (record.thumbnailUrl.includes('?') ? '&' : '?') + 'size=list'; image.decoding = 'async'; image.alt = `${record.stage || '未判定'}の試合`; image.loading = 'lazy'; media.append(image); }
+  if (record.thumbnailUrl) { const image = document.createElement('img'); image.src = imageSourceUrl(record.thumbnailUrl, 'list'); image.decoding = 'async'; image.alt = `${record.stage || '未判定'}の試合`; image.loading = 'lazy'; media.append(image); }
   else media.append(node('span', 'thumbnail-pending', '準備中'));
   const outcome = node('b', `result-outcome ${record.outcome || 'unknown'}`, record.outcome === 'win' ? 'WIN' : record.outcome === 'lose' ? 'LOSE' : '—');
   const body = node('div', 'result-body');

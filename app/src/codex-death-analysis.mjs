@@ -256,26 +256,6 @@ async function readCompletedOutput(outputPath, expectedIds, refresh) {
   }
 }
 
-export async function recoverLegacySequenceOutput(clipPath, frameDir, expectedIds, refresh) {
-  if (refresh || FORCE_REFRESH) return [];
-  try {
-    const clipStat = await fs.stat(clipPath);
-    const names = (await fs.readdir(frameDir)).filter(name => /^sequence-result-\d+\.json$/.test(name));
-    const deaths = [];
-    for (const name of names) {
-      const resultPath = path.join(frameDir, name);
-      const resultStat = await fs.stat(resultPath);
-      if (resultStat.mtimeMs < clipStat.mtimeMs) continue;
-      const value = JSON.parse(await fs.readFile(resultPath, 'utf8'));
-      if (Array.isArray(value?.deaths)) deaths.push(...value.deaths);
-    }
-    return normalizeCodexAnalysis({ deaths }, expectedIds);
-  } catch (error) {
-    if (error.code === 'ENOENT' || error instanceof SyntaxError) return [];
-    throw error;
-  }
-}
-
 export function codexArgs({ schemaPath, outputPath, workspace }) {
   const args = ['exec', '--json', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--skip-git-repo-check'];
   if (workspace) {
@@ -420,8 +400,4 @@ export async function analyzeDeathSequencesWithCodex({ clipPath, deaths, workDir
     console.warn(`Codex death sequence analysis unavailable; using automatic fallback: ${error.message}`);
     return { deaths, analysis: null };
   }
-}
-
-export async function analyzeDeathsWithCodex(options) {
-  return (await analyzeDeathSequencesWithCodex(options)).deaths;
 }

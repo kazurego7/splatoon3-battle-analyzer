@@ -114,8 +114,6 @@ export class LiveRecordingController {
     }
     this.publishing.add(match.number);
     try {
-      const manifest = await this.availableManifest(match);
-      if (!manifest) throw new Error('試合末尾の再生用データを準備できませんでした');
       const samples = this.collector.samples.get(match.number);
       if (!samples) throw new Error('試合のリアルタイム分析結果がありません');
       const currentBeforeThumbnail = this.store.get(this.recording.id);
@@ -136,7 +134,9 @@ export class LiveRecordingController {
       const item = {
         id: `${this.recording.id}-match-${String(match.number).padStart(2, '0')}`,
         number: match.number, start: match.start, end: match.end, duration: match.end - match.start,
-        status: 'ready', videoManifest: manifest,
+        status: 'ready',
+        sourceVideoUrl: `/media/recordings/${encodeURIComponent(this.recording.id)}/source.mp4?through=${match.end}`,
+        sourceVideoStart: match.start,
         analysisUrl: `/api/analysis/${encodeURIComponent(this.recording.id)}/match-${String(match.number).padStart(2, '0')}.json`,
         thumbnailUrl,
       };
@@ -146,6 +146,17 @@ export class LiveRecordingController {
       const matches = [...(current.matches || []).filter(existing => existing.number !== match.number), item]
         .sort((left, right) => left.number - right.number);
       await this.store.patch(this.recording.id, { matches, status: 'recording', phase: '録画中・前の試合を振り返れます', live: true });
+      // Local review is available before the remote encoder catches up.
+      // Keep this match's fragments protected until its manifest is attached.
+      const manifest = await this.availableManifest(match).catch(error => {
+        console.warn(`Remote fragments are not ready for match ${match.number}: ${error.message}`);
+        return null;
+      });
+      if (manifest && !this.stopped) {
+        const latest = this.store.get(this.recording.id);
+        await this.store.patch(this.recording.id, { matches: latest.matches.map(candidate =>
+          candidate.number === match.number ? { ...candidate, videoManifest: manifest } : candidate) });
+      }
       this.unpublishedStarts.delete(match.number);
       await this.pruneUnreferencedRuns();
     } catch (error) {
@@ -221,7 +232,7 @@ export class LiveRecordingController {
     this.stopping = true;
     this.session.stop();
     try { await this.session.completed; } catch {}
-    for (let attempt = 0; attempt < 20 && this.publishing.size; attempt += 1) await delay(250);
+    while (this.publishing.size) await delay(50);
     if (this.pruning) await this.pruning;
     const beforeFinalizing = this.store.get(this.recording.id);
     for (const match of beforeFinalizing?.matches || []) {

@@ -6,8 +6,8 @@
 
 | フィールド | 内容 |
 | --- | --- |
-| `id` | ファイル名とサイズから作る安定ID |
-| `status` | `queued`, `probing`, `splitting`, `analyzing`, `ready`, `error` |
+| `id` | ファイル名と作成時刻から作る安定ID。録画中のファイルサイズ増加では変更しない |
+| `status` | `queued`, `recording`, `probing`, `splitting`, `analyzing`, `ready`, `error` |
 | `phase` | 画面へ表示する日本語の処理段階 |
 | `progress` | 0〜1の進捗 |
 | `media` | 長さ、映像・音声コーデック、解像度、FPS |
@@ -18,7 +18,7 @@
 `data/app/analysis/<recording-id>/match-NN.json` は1試合分の解析結果です。
 
 - `source.start` / `source.end`: 元録画上の試合区間（秒）
-- `media.duration`: 分割動画の長さ（秒）
+- `media.duration`: 試合区間の長さ（秒）。解析・シーク・レポートの時刻は試合開始を0秒とする
 - `events`: 分析候補の時刻、説明、確度、根拠
   - `type: death` には `title`、`situation`、`cause` を保存する
   - AIシーケンス分析済みのデスは、`sequence`、`turningPoint`、`patternTags` も持つ
@@ -95,7 +95,7 @@
   - 個人リザルトで確定した自分のブキが味方4枠に存在しない結果は保存しない
   - 2フレームで一致しない枠や信頼度が基準未満の枠は名称を作らず、編成を部分取得として扱う
 
-現在の解析JSONはバージョン28です。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
+解析JSONの形式は生成経路ごとに [`pipeline.mjs`](../src/pipeline.mjs) と [`live-match-finalizer.mjs`](../src/live-match-finalizer.mjs) で定義しています。録画中は取得前の詳細を `null` とし、録画終了後に補完します。AI分析は元の解析バージョンを保持してデス一覧・レポート・進捗を更新し、基礎解析の形式を移行したことにはしません。未知の値を作らないことを優先し、取得できない項目は `not-yet-available`、確定できない項目は `candidate-only` とします。位置や動線を追加するときも、映像・マップで知覚できた `observed`、事後的に補間した `inferred`、その時点から先を見積もった `predicted` を分離して保存します。
 
 ## 横断分析データ
 

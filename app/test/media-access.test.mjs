@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isLoopbackHostname, isRemoteAccess, preferredRemoteCodec, remoteVideoApiUrl, remoteVideoMediaUrl } from '../public/media-access.js';
+import { imageSourceUrl, isLoopbackHostname, isRemoteAccess, playbackRecording, videoSourcePreference } from '../public/media-access.js';
+
+test('remote live matches can use compressed fragments before R2, while local readiness is independent', () => {
+  const ready = { number: 1, status: 'ready', sourceVideoUrl: '/media/recordings/1/source.mp4' };
+  const recording = { live: true, status: 'recording', matches: [ready] };
+  assert.equal(playbackRecording(recording, false).matches[0].status, 'ready');
+  assert.equal(playbackRecording(recording, true).matches[0].status, 'cloud-pending');
+  ready.videoManifest = { fragments: [{ url: '/media/live/1/segment.mp4' }] };
+  assert.equal(playbackRecording(recording, true).matches[0].status, 'ready');
+  recording.live = false;
+  assert.equal(playbackRecording(recording, true).matches[0].status, 'cloud-pending');
+  ready.cloud = { status: 'ready' };
+  assert.equal(playbackRecording(recording, true).matches[0].status, 'ready');
+});
 
 test('localhostとループバックだけをローカル閲覧として扱う', () => {
   for (const hostname of ['localhost', '127.0.0.1', '::1', '[::1]']) assert.equal(isLoopbackHostname(hostname), true);
@@ -9,18 +22,27 @@ test('localhostとループバックだけをローカル閲覧として扱う',
   assert.equal(isRemoteAccess({ hostname: 'pc.example.ts.net' }), true);
 });
 
-test('試合動画URLをネットワーク用APIと動画URLへ安全に変換する', () => {
-  const source = '/media/matches/recording%201/match-01.mp4';
-  assert.equal(remoteVideoApiUrl(source), '/api/remote-video/recording%201/match-01.mp4?codec=h264');
-  assert.equal(remoteVideoApiUrl(source, 'hevc'), '/api/remote-video/recording%201/match-01.mp4?codec=hevc');
-  assert.equal(remoteVideoMediaUrl(source), '/media/remote-matches/h264/recording%201/match-01.mp4');
-  assert.equal(remoteVideoMediaUrl(source, 'hevc'), '/media/remote-matches/hevc/recording%201/match-01.mp4');
-  assert.equal(remoteVideoApiUrl('/assets/example.mp4'), null);
-});
-
-test('ブラウザがHEVCを再生できる場合だけHEVCを選ぶ', () => {
-  assert.equal(preferredRemoteCodec({ canPlayType:()=> 'probably' }), 'hevc');
-  assert.equal(preferredRemoteCodec({ canPlayType:()=> 'maybe' }), 'hevc');
-  assert.equal(preferredRemoteCodec({ canPlayType:()=> '' }), 'h264');
-  assert.equal(preferredRemoteCodec(null), 'h264');
+test('現行の再生先だけを採用し、旧設定・不明な値は自動判定に戻す', t => {
+  let saved;
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => saved } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  });
+  for (saved of [null, 'youtube', 'unknown']) {
+    assert.equal(videoSourcePreference(), 'auto');
+    assert.equal(isRemoteAccess({ hostname: 'localhost' }), false);
+    assert.equal(isRemoteAccess({ hostname: 'pc.example.ts.net' }), true);
+  }
+  saved = 'cloud';
+  assert.equal(videoSourcePreference(), 'cloud');
+  assert.equal(isRemoteAccess({ hostname: 'localhost' }), true);
+  assert.equal(imageSourceUrl('/assets/stage.webp', 'icon'), '/assets/stage.webp?size=icon');
+  assert.equal(imageSourceUrl('/media/thumb.jpg?v=2', 'list'), '/media/thumb.jpg?v=2&size=list');
+  saved = 'local';
+  assert.equal(videoSourcePreference(), 'local');
+  assert.equal(isRemoteAccess({ hostname: 'pc.example.ts.net' }), false);
+  assert.equal(imageSourceUrl('/assets/stage.webp', 'icon'), '/assets/stage.webp');
+  assert.equal(imageSourceUrl('/media/thumb.jpg?v=2', 'list'), '/media/thumb.jpg?v=2');
 });

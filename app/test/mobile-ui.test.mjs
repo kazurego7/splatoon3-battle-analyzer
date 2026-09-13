@@ -132,7 +132,8 @@ test('ダッシュボードはスマホで1列になり、検索画面は縦ス�
   ]);
   assert.match(styles, /@media \(max-width:700px\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
-  assert.match(styles, /\.app-header \{ position:sticky; top:0; z-index:80; height:calc\(56px \+ env\(safe-area-inset-top, 0px\)\); min-height:calc\(56px \+ env\(safe-area-inset-top, 0px\)\);/);
+  assert.match(styles, /--app-safe-top:env\(safe-area-inset-top, 0px\)/);
+  assert.match(styles, /\.app-header \{ position:sticky; top:0; z-index:80; height:calc\(56px \+ var\(--app-safe-top\)\); min-height:calc\(56px \+ var\(--app-safe-top\)\);/);
   assert.match(styles, /\.mobile-review-nav \{ position:sticky;[^}]*top:56px;/);
   assert.match(styles, /\.is-review \.video-panel \{ order:1/);
   assert.match(styles, /\.result-map-panel \{ display:grid/);

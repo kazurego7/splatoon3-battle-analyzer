@@ -216,21 +216,14 @@ export class Pipeline {
       if (!cached.length || cached[0].centerDarkRatio == null) throw new Error('古いサンプル形式');
       samples = cached;
     } catch {
-      try {
-        const inspectionName = path.basename(recording.fileName, path.extname(recording.fileName)).replace(/[^\p{Letter}\p{Number}]+/gu, '-');
-        const inspection = JSON.parse(await fs.readFile(path.join(WORK_ROOT, inspectionName, 'inspection.json'), 'utf8'));
-        if (!inspection.samples?.length || inspection.samples[0].centerDarkRatio == null) throw new Error('診断サンプルなし');
-        samples = inspection.samples;
-      } catch {
-        samples = await sampleVideo(recording.source, media.duration, {
-          interval: 2,
-          onProgress: ratio => this.store.patch(id, {
-            status: 'splitting',
-            phase: '試合区間を検出中',
-            progress: 0.05 + ratio * 0.25,
-          }).catch(console.error),
-        });
-      }
+      samples = await sampleVideo(recording.source, media.duration, {
+        interval: 2,
+        onProgress: ratio => this.store.patch(id, {
+          status: 'splitting',
+          phase: '試合区間を検出中',
+          progress: 0.05 + ratio * 0.25,
+        }).catch(console.error),
+      });
       await fs.writeFile(sampleCache, `${JSON.stringify(samples)}\n`);
     }
     const classified = classifySamples(samples, 2);

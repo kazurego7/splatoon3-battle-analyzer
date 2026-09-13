@@ -1,15 +1,27 @@
-import { stripAppBase } from './app-path.js';
 export function isLoopbackHostname(hostname) {
   const value = String(hostname || '').toLowerCase();
   return value === 'localhost' || value === '127.0.0.1' || value === '::1' || value === '[::1]';
 }
 
+export function videoSourcePreference() {
+  try {
+    const preference = globalThis.localStorage?.getItem('video-source');
+    if (['auto', 'local', 'cloud'].includes(preference)) return preference;
+  } catch {}
+  return 'auto';
+}
+
 export function isRemoteAccess(locationLike = globalThis.location) {
-  let preference = 'auto';
-  try { preference = globalThis.localStorage?.getItem('video-source') || 'auto'; } catch {}
+  const preference = videoSourcePreference();
   if (preference === 'local') return false;
-  if (['cloud', 'youtube'].includes(preference)) return true;
+  if (preference === 'cloud') return true;
   return isRemoteHost(locationLike);
+}
+
+// Image delivery follows the same local/remote choice as video playback.
+export function imageSourceUrl(url, size, remote = isRemoteAccess()) {
+  if (!url || !remote) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}size=${encodeURIComponent(size)}`;
 }
 
 export function isRemoteHost(locationLike = globalThis.location) {
@@ -26,17 +38,6 @@ export function cloudStatusText(state) {
   return ({ setup: 'クラウドの接続設定待ち', queued: 'クラウド転送待ち', preparing: 'クラウド用動画を準備中', uploading: 'クラウドへ転送中', verifying: 'クラウドの再生を確認中', capacity: 'クラウドの容量上限に達しました', ready: 'クラウドで再生可能', error: 'クラウド転送の再試行待ち', blocked: 'クラウドの設定を確認してください' })[state?.status] || 'クラウド転送待ち';
 }
 
-export function recordingCloudStatus(recording) {
-  const matches = recording.matches || [];
-  if (!matches.length || !matches.some(match => match.cloud)) return '';
-  const ready = matches.filter(match => match.cloud?.status === 'ready').length;
-  if (ready === matches.length) return `クラウド準備完了・${ready}/${matches.length}試合`;
-  const pending = matches.filter(match => match.cloud?.status !== 'ready');
-  const priority = ['uploading', 'preparing', 'verifying', 'paused', 'error', 'blocked', 'capacity', 'setup', 'queued'];
-  const current = priority.map(status => pending.find(match => match.cloud?.status === status)).find(Boolean) || pending[0];
-  return `クラウド準備中・${ready}/${matches.length}試合・${cloudStatusText(current.cloud)}`;
-}
-
 export function recordingDisplayState(recording) {
   const source = { ...recording, status: recording.localStatus ?? recording.status,
     phase: recording.localPhase ?? recording.phase, progress: recording.localProgress ?? recording.progress,
@@ -48,7 +49,7 @@ export function recordingDisplayState(recording) {
 export function playbackRecording(recording, remote) {
   if (!remote) return recording;
   const matches = (recording.matches || []).map(match => ({ ...match, localStatus: match.status,
-    status: match.status === 'ready' && match.cloud?.status !== 'ready' ? 'cloud-pending' : match.status }));
+    status: match.status === 'ready' && match.cloud?.status !== 'ready' && !(recording.live && match.videoManifest?.fragments?.length) ? 'cloud-pending' : match.status }));
   const pending = matches.filter(match => match.localStatus === 'ready' && match.status !== 'ready');
   if (!pending.length) return { ...recording, matches };
   const readyCount = matches.filter(match => match.status === 'ready').length;
@@ -56,29 +57,4 @@ export function playbackRecording(recording, remote) {
     status: recording.status === 'ready' ? 'cloud-pending' : recording.status,
     phase: `${readyCount}/${matches.length}試合がリモート再生可能・${cloudStatusText(pending[0].cloud)}`,
     progress: Math.min(recording.progress || 0, matches.length ? readyCount / matches.length : 0) };
-}
-
-export function preferredRemoteCodec(videoElement) {
-  const support = videoElement?.canPlayType?.('video/mp4; codecs="hvc1"');
-  return support === 'probably' || support === 'maybe' ? 'hevc' : 'h264';
-}
-
-function matchMediaParts(videoUrl) {
-  const pathname = stripAppBase(new URL(videoUrl, 'http://localhost').pathname);
-  const match = pathname.match(/^\/media\/matches\/([^/]+)\/([^/]+)$/);
-  return match ? { recordingId: decodeURIComponent(match[1]), fileName: decodeURIComponent(match[2]) } : null;
-}
-
-export function remoteVideoApiUrl(videoUrl, codec = 'h264') {
-  const parts = matchMediaParts(videoUrl);
-  return parts
-    ? `/api/remote-video/${encodeURIComponent(parts.recordingId)}/${encodeURIComponent(parts.fileName)}?codec=${codec === 'hevc' ? 'hevc' : 'h264'}`
-    : null;
-}
-
-export function remoteVideoMediaUrl(videoUrl, codec = 'h264') {
-  const parts = matchMediaParts(videoUrl);
-  return parts
-    ? `/media/remote-matches/${codec === 'hevc' ? 'hevc' : 'h264'}/${encodeURIComponent(parts.recordingId)}/${encodeURIComponent(parts.fileName)}`
-    : null;
 }

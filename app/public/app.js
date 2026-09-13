@@ -2,7 +2,7 @@ import { appFetch as fetch, appUrl } from './app-path.js';
 import { resolveOutcomeLabel } from './outcome.js';
 import { deathAnalysisControlState, deathAnalysisEndpoint, deathReportDigest, deathSeekTime, matchAnalysisBadge } from './death-analysis-ui.js';
 import { killDeathFromAnalysis } from './player-stats-ui.js';
-import { isRemoteAccess, isRemoteHost, recordingDisplayState, playbackRecording, cloudStatusText } from './media-access.js';
+import { isRemoteAccess, isRemoteHost, recordingDisplayState, playbackRecording, cloudStatusText, imageSourceUrl } from './media-access.js';
 import { mediaController } from './media-player.js';
 import { stageMapAssetUrl } from './stage-map-ui.js';
 import { patternReportModels } from './report-player.js';
@@ -160,6 +160,11 @@ async function loadFragmentVideo(manifest,generation,startTime=0){
 async function loadMatchVideo(match) {
   const generation=++videoLoadGeneration;currentPlaybackUrl=null;playbackOffset=0;if(fragmentPlaybackCleanup)fragmentPlaybackCleanup();fragmentPlaybackCleanup=null;elements.video.pause();elements.video.removeAttribute('src');elements.video.removeAttribute('poster');if(playbackObjectUrl)URL.revokeObjectURL(playbackObjectUrl);playbackObjectUrl=null;
   if(remoteAccess){
+    if(currentRecording.live&&match.videoManifest&&match.cloud?.status!=='ready'){
+      try{setVideoNetworkStatus('動画を読み込んでいます…');await loadFragmentVideo(match.videoManifest,generation);}
+      catch(error){if(generation===videoLoadGeneration)setVideoNetworkStatus(`動画を読み込めませんでした：${error.message}`,true);}
+      return;
+    }
     const endpoint=`/api/cloud/${encodeURIComponent(currentRecording.id)}/${match.number}`;
     try{
       while(generation===videoLoadGeneration){
@@ -175,7 +180,6 @@ async function loadMatchVideo(match) {
     return;
   }
   if(match.sourceVideoUrl){setVideoNetworkStatus();playbackOffset=Math.max(0,Number(match.sourceVideoStart)||0);elements.video.preload='metadata';elements.video.src=match.sourceVideoUrl;currentPlaybackUrl=match.sourceVideoUrl;const seekToStart=()=>setPlaybackTime(0);if(elements.video.readyState>=1)seekToStart();else elements.video.addEventListener('loadedmetadata',seekToStart,{once:true});elements.video.load();return;}
-  if(match.videoManifest){try{setVideoNetworkStatus();await loadFragmentVideo(match.videoManifest,generation);}catch(error){if(generation===videoLoadGeneration)setVideoNetworkStatus(`動画を読み込めませんでした：${error.message}`,true);}return;}
   setVideoNetworkStatus();elements.video.preload='metadata';elements.video.src=match.videoUrl;currentPlaybackUrl=match.videoUrl;
 }
 function clonePositionPlan(plan) { return JSON.parse(JSON.stringify(plan||{strongPositions:[],briefings:[]})); }
@@ -208,7 +212,7 @@ function selectRecording(id) { reviewGeneration+=1; selectedId=id; currentAnalys
 
 function matchCard(recording,match) {
   const ready=match.status==='ready',card=document.createElement('article');card.className=`match-card${ready?' is-clickable':''}`;card.tabIndex=ready?0:-1;card.setAttribute('role','button');card.setAttribute('aria-disabled',String(!ready));card.setAttribute('aria-label',`試合 ${String(match.number).padStart(2,'0')} の振り返りを開く`);
-  const media=document.createElement('div');media.className='match-card-media';const image=document.createElement('img');image.alt=`試合${match.number}のサムネイル`;image.loading='lazy';image.decoding='async';if(match.thumbnailUrl)image.src=match.thumbnailUrl+(match.thumbnailUrl.includes('?')?'&':'?')+'size=list';const placeholder=document.createElement('span');placeholder.className='thumbnail-pending';placeholder.textContent='準備中';placeholder.hidden=Boolean(match.thumbnailUrl);const preview=document.createElement('video');preview.className='match-card-preview';preview.muted=true;preview.loop=true;preview.playsInline=true;preview.preload='none';media.append(image,placeholder,preview);
+  const media=document.createElement('div');media.className='match-card-media';const image=document.createElement('img');image.alt=`試合${match.number}のサムネイル`;image.loading='lazy';image.decoding='async';if(match.thumbnailUrl)image.src=imageSourceUrl(match.thumbnailUrl,'list',remoteAccess);const placeholder=document.createElement('span');placeholder.className='thumbnail-pending';placeholder.textContent='準備中';placeholder.hidden=Boolean(match.thumbnailUrl);const preview=document.createElement('video');preview.className='match-card-preview';preview.muted=true;preview.loop=true;preview.playsInline=true;preview.preload='none';media.append(image,placeholder,preview);
   const body=document.createElement('div'); body.className='match-card-body'; const top=document.createElement('div'); top.className='match-card-top'; const title=document.createElement('h3'); title.textContent=`試合 ${String(match.number).padStart(2,'0')}`;
   const badge=document.createElement('span'); const setBadge=analysis=>{const state=match.status==='cloud-pending'?{className:'queued',label:cloudStatusText(match.cloud)}:matchAnalysisBadge({ready,analysis});badge.className=`status-badge ${state.className}`.trim();badge.textContent=state.label;};setBadge();top.append(title,badge);
   const facts=document.createElement('div');facts.className='match-card-facts';facts.setAttribute('aria-live','polite');
@@ -537,7 +541,7 @@ window.addEventListener('resize',handleReviewViewportResize);window.visualViewpo
 if(landscapeOrientation.addEventListener)landscapeOrientation.addEventListener('change',syncExpandedVideoToOrientation);else landscapeOrientation.addListener(syncExpandedVideoToOrientation);
 elements.video.addEventListener('pointerdown',handleExpandedVideoPointerDown);elements.video.addEventListener('pointermove',handleExpandedVideoPointerMove);elements.video.addEventListener('pointerup',finishExpandedVideoScrub);elements.video.addEventListener('pointercancel',finishExpandedVideoScrub);
 elements.video.addEventListener('click',handleVideoClick);elements.video.addEventListener('dblclick',event=>event.preventDefault());elements.video.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();toggleVideoPlayback();}});elements.video.addEventListener('timeupdate',updatePlaybackUi);elements.video.addEventListener('play',syncMobilePlaybackButton);elements.video.addEventListener('pause',syncMobilePlaybackButton);elements.video.addEventListener('ended',syncMobilePlaybackButton);elements.seek.addEventListener('input',()=>{setPlaybackTime(Number(elements.seek.value));updatePlaybackUi();});
-elements.video.addEventListener('loadeddata',()=>setVideoNetworkStatus());elements.video.addEventListener('playing',()=>setVideoNetworkStatus());elements.video.addEventListener('waiting',()=>{if(remoteAccess&&currentPlaybackUrl)setVideoNetworkStatus('通信中…');});elements.video.addEventListener('error',()=>{if(remoteAccess&&currentPlaybackUrl)setVideoNetworkStatus(elements.video.error?.message||'動画の読み込みに失敗しました。再度試合を開いてください。',true);});
+elements.video.addEventListener('loadeddata',()=>setVideoNetworkStatus());elements.video.addEventListener('playing',()=>setVideoNetworkStatus());elements.video.addEventListener('waiting',()=>{if(remoteAccess&&currentPlaybackUrl)setVideoNetworkStatus('通信中…');});elements.video.addEventListener('error',()=>{if(currentPlaybackUrl)setVideoNetworkStatus(elements.video.error?.message||'動画の読み込みに失敗しました。再度試合を開いてください。',true);});
 elements.deathAiButton.addEventListener('click',runDeathAiAnalysis);
 elements.deathReportButton.addEventListener('click',openDeathReport);
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&elements.videoPanel.classList.contains('is-expanded')&&!document.fullscreenElement){void collapseVideo();return;}if((event.key!=='ArrowLeft'&&event.key!=='ArrowRight')||elements.reviewView.hidden||elements.mapEditorModal.open)return;const editingTarget=event.target instanceof HTMLElement&&event.target.matches('input:not(#seek),textarea,[contenteditable="true"]');if(editingTarget)return;event.preventDefault();seekBySeconds(event.key==='ArrowLeft'?-1:1);});

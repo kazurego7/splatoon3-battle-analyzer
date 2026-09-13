@@ -183,7 +183,6 @@ async function runDeathAnalysisJob({ jobKey, analysisPath, clipPath, deaths, wor
           totalDeaths: deaths.length, updatedAt: new Date().toISOString(),
         };
         await updateAnalysisFile(analysisPath, analysis => {
-          analysis.version = Math.max(26, Number(analysis.version) || 0);
           analysis.events = sequenceResult.deaths;
           analysis.deathAnalysis = null;
           analysis.deathAnalysisState = publicDeathAnalysisState(reportState);
@@ -197,7 +196,6 @@ async function runDeathAnalysisJob({ jobKey, analysisPath, clipPath, deaths, wor
     });
     const completeState = { ...job, status: 'complete', phase: 'complete', completedDeaths: deaths.length, updatedAt: new Date().toISOString() };
     await updateAnalysisFile(analysisPath, analysis => {
-      analysis.version = Math.max(26, Number(analysis.version) || 0);
       analysis.events = result.deaths;
       analysis.deathAnalysis = result.analysis;
       analysis.deathAnalysisState = publicDeathAnalysisState(completeState);
@@ -278,7 +276,7 @@ function safeJoin(root, segments) {
   return target;
 }
 
-async function serveFile(request, response, file) {
+async function serveFile(request, response, file, { growing = false } = {}) {
   const stat = await fsp.stat(file);
   if (!stat.isFile()) throw new Error('Not a file');
   const type = mimeTypes[path.extname(file).toLowerCase()] || 'application/octet-stream';
@@ -307,7 +305,7 @@ async function serveFile(request, response, file) {
   const commonHeaders = {
     'Content-Type': type,
     'Accept-Ranges': 'bytes',
-    ...(type.startsWith('video/') ? { 'Cache-Control': 'private, max-age=3600', 'Content-Disposition': 'inline' } : {}),
+    ...(type.startsWith('video/') ? { 'Cache-Control': growing ? 'private, no-store' : 'private, max-age=3600', 'Content-Disposition': 'inline' } : {}),
   };
   if (range === false) {
       response.writeHead(416, { ...commonHeaders, 'Content-Range': `bytes */${stat.size}`, 'Content-Length': 0 });
@@ -326,8 +324,8 @@ async function serveFile(request, response, file) {
     return;
   }
   response.writeHead(200, { ...commonHeaders, 'Content-Length': stat.size });
-  if (request.method === 'HEAD') response.end();
-  else fs.createReadStream(file).pipe(response);
+  if (request.method === 'HEAD' || stat.size === 0) response.end();
+  else fs.createReadStream(file, { start: 0, end: stat.size - 1 }).pipe(response);
 }
 
 const server = http.createServer(async (request, response) => {
@@ -497,7 +495,7 @@ const server = http.createServer(async (request, response) => {
     if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'recordings' && parts[2]) {
       const recording = store.get(decodeURIComponent(parts[2]));
       if (!recording?.source) return json(response, 404, { error: '元の録画が見つかりません' });
-      await serveFile(request, response, recording.source);
+      await serveFile(request, response, recording.source, { growing: recording.live || recording.status === 'recording' });
       return;
     }
     if ((request.method === 'GET' || request.method === 'HEAD') && parts[0] === 'media' && parts[1] === 'thumbnails') {

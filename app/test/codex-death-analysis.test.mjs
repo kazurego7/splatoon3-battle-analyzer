@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { analyzeDeathSequencesWithCodex, analyzeDeathsWithCodex, createCodexExitError, normalizeCodexAnalysis, normalizeCodexPatterns, recoverLegacySequenceOutput } from '../src/codex-death-analysis.mjs';
+import { analyzeDeathSequencesWithCodex, createCodexExitError, normalizeCodexAnalysis, normalizeCodexPatterns } from '../src/codex-death-analysis.mjs';
 
 function sequenceDeath(id, overrides = {}) {
   return {
@@ -59,29 +59,9 @@ test('rejects a repeated pattern when its clip ranges do not cover every death',
 
 test('does not generate AI analysis unless explicitly enabled or forced', async () => {
   const deaths = [{ id: 'death-1', time: 10, title: 'ローカル説明' }];
-  const result = await analyzeDeathsWithCodex({ clipPath: 'unused.mp4', deaths, workDir: 'unused', matchNumber: 1 });
   const sequenceResult = await analyzeDeathSequencesWithCodex({ clipPath: 'unused.mp4', deaths, workDir: 'unused', matchNumber: 1 });
-  assert.equal(result, deaths);
   assert.equal(sequenceResult.deaths, deaths);
   assert.equal(sequenceResult.analysis, null);
-});
-
-test('recovers completed legacy batches so a retry only analyzes missing deaths', async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-death-progress-'));
-  const clipPath = path.join(directory, 'match.mp4');
-  try {
-    await fs.writeFile(clipPath, 'clip');
-    await new Promise(resolve => setTimeout(resolve, 20));
-    await fs.writeFile(path.join(directory, 'sequence-result-1.json'), JSON.stringify({
-      deaths: [sequenceDeath('death-1'), sequenceDeath('death-2')],
-    }));
-    const recovered = await recoverLegacySequenceOutput(
-      clipPath, directory, new Set(['death-1', 'death-2', 'death-3']), false,
-    );
-    assert.deepEqual(recovered.map(item => item.id), ['death-1', 'death-2']);
-  } finally {
-    await fs.rm(directory, { recursive: true, force: true });
-  }
 });
 
 test('classifies Codex JSONL errors from the CLI response', () => {

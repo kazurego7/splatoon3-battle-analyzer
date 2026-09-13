@@ -1,7 +1,8 @@
 import { appFetch as fetch } from './app-path.js';
+import { videoSourcePreference } from './media-access.js';
 import { cloudStatusText } from './media-access.js';
 const byId = id => document.getElementById(id), source = byId('source');
-try { const saved = localStorage.getItem('video-source') || 'auto'; source.value = saved === 'youtube' ? 'cloud' : saved; } catch {}
+source.value = videoSourcePreference();
 source.addEventListener('change', () => { try { localStorage.setItem('video-source', source.value); byId('message').textContent = '再生先を保存しました。録画ライブラリを開き直すと反映されます。'; } catch { byId('message').textContent = 'ブラウザに設定を保存できませんでした。'; } });
 const gb = bytes => `${(bytes / 1e9).toFixed(2)} GB`;
 function node(tag, text, className) { const element = document.createElement(tag); element.textContent = text; if (className) element.className = className; return element; }
