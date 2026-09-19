@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,6 +19,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Windows FFmpeg
+        shell: pwsh
+        run: |
+          python -m pip install imageio-ffmpeg==0.6.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ffmpegPath = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "FFMPEG_PATH=$ffmpegPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $ffmpegPath -version
       - run: npm ci
         working-directory: app
       - run: npm run check

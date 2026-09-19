@@ -5,7 +5,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { AnalysisNotifications, validateSubscription } from '../src/analysis-notifications.mjs';
 const sub={endpoint:'https://fcm.googleapis.com/fcm/send/example',keys:{p256dh:'a'.repeat(87),auth:'a'.repeat(22)}};
-async function fixture(t,send){const root=await fs.mkdtemp(path.join(os.tmpdir(),'sba-notifications-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await fs.mkdir(path.join(root,'r'));const file=path.join(root,'r','match.json');let counter=0;const write=async(complete=true)=>{await fs.writeFile(file,JSON.stringify({deathAnalysis:complete?{summary:`report${++counter}`} : null,deathAnalysisState:{status:complete?'complete':'report'}}));};await write();const opts={stateFile:path.join(root,'push.json'),analysisRoot:root,store:{list:()=>[{id:'r',fileName:'movie.mp4',matches:[{number:1,analysisUrl:'/api/analysis/r/match.json'}]}]},send};const service=new AnalysisNotifications(opts);await service.load();return {service,write,opts};}
+async function fixture(t, send) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sba-notifications-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, 'r'));
+  const file = path.join(root, 'r', 'match.json');
+  let counter = 0, modifiedAt = Date.now();
+  const write = async (complete = true) => {
+    await fs.writeFile(file, JSON.stringify({ deathAnalysis: complete ? { summary: `report${++counter}` } : null,
+      deathAnalysisState: { status: complete ? 'complete' : 'report' } }));
+    // Model a later analysis completion explicitly. Rapid same-sized writes can
+    // share an mtime, or appear older than subscribe() due to filesystem precision.
+    modifiedAt = Math.max(modifiedAt + 1000, Date.now() + 1000);
+    const time = new Date(modifiedAt);
+    await fs.utimes(file, time, time);
+  };
+  await write();
+  const opts = { stateFile: path.join(root, 'push.json'), analysisRoot: root,
+    store: { list: () => [{ id: 'r', fileName: 'movie.mp4', matches: [{ number: 1, analysisUrl: '/api/analysis/r/match.json' }] }] }, send };
+  const service = new AnalysisNotifications(opts);
+  await service.load();
+  return { service, write, opts };
+}
 test('existing results are quiet; completed AI reports notify once with the subscribed mount; restart preserves registration',async t=>{const sent=[];const {service,write,opts}=await fixture(t,async(s,p)=>sent.push(JSON.parse(p)));service.subscribe(sub,'/sba');await service.scan();assert.equal(sent.length,0);await write(false);await service.scan();assert.equal(sent.length,0);await write();await service.scan();assert.equal(sent.length,1);assert.equal(sent[0].url,'/sba/?recording=r&match=1');await service.scan();assert.equal(sent.length,1);const restored=new AnalysisNotifications(opts);await restored.load();await restored.scan();assert.equal(sent.length,1);assert.equal(Object.keys(restored.state.subscriptions).length,1);assert.equal(restored.state.keys.privateKey,service.state.keys.privateKey);});
 test('transient failures survive restart and expired subscriptions are removed',async t=>{let fail=true;const {service,write,opts}=await fixture(t,async()=>{if(fail)throw {statusCode:503};});service.subscribe(sub,'');await write();await service.scan();assert.equal(service.state.pending.length,1);const restored=new AnalysisNotifications(opts);await restored.load();assert.equal(restored.state.pending.length,1);fail=false;restored.state.pending[0].next=0;await restored.flush();assert.equal(restored.state.pending.length,0);restored.send=async()=>{throw {statusCode:410};};await write();await restored.scan();assert.equal(Object.keys(restored.state.subscriptions).length,0);});
 test('unsubscribed devices receive no pending notifications and arbitrary URLs are refused',async t=>{const {service}=await fixture(t,async()=>{});service.subscribe(sub,'/sba');service.unsubscribe(sub.endpoint);assert.equal(Object.keys(service.state.subscriptions).length,0);for(const endpoint of ['http://localhost/a','https://127.0.0.1/a','https://fcm.googleapis.com.evil.test/a','https://fcm.googleapis.com:444/a'])assert.throws(()=>validateSubscription({...sub,endpoint}));});
